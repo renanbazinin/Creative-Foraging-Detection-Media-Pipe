@@ -59,6 +59,9 @@ function StartDialog({ onStart }) {
         </div>
 
         <div className="dialog-buttons">
+          <button className="dialog-button" onClick={() => { window.location.hash = '/calibrate'; }}>
+            Calibrate Colors
+          </button>
           <button className="dialog-button ok" onClick={handleOK}>
             OK
           </button>

@@ -3,6 +3,7 @@ import './App.css';
 import StartDialog from './components/StartDialog';
 import GameCanvas from './components/GameCanvas';
 import BraceletDetector from './components/BraceletDetector';
+import ColorCalibration from './components/ColorCalibration';
 
 // ===== CONFIGURATION =====
 const ENABLE_DETECTOR = true; // Set to false to disable bracelet detector
@@ -23,15 +24,6 @@ function App() {
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
-
-  // If hash is #/detector, show only the detector
-  if (currentRoute === '#/detector') {
-    return (
-      <div className="App">
-        <BraceletDetector />
-      </div>
-    );
-  }
 
   const handleStartGame = (config) => {
     setGameConfig(config);
@@ -71,21 +63,31 @@ function App() {
     };
   }, [detectorWindow]);
 
+  // Route-aware rendering without early returns to keep hooks order stable
+  let body = null;
+  if (currentRoute === '#/detector') {
+    body = <BraceletDetector />;
+  } else if (currentRoute === '#/calibrate') {
+    body = <ColorCalibration />;
+  } else {
+    body = (!gameStarted ? (
+      <StartDialog onStart={handleStartGame} />
+    ) : (
+      <>
+        <GameCanvas config={gameConfig} />
+        {ENABLE_DETECTOR && !DETECTOR_IN_NEW_WINDOW && <BraceletDetector />}
+        {ENABLE_DETECTOR && DETECTOR_IN_NEW_WINDOW && gameStarted && (
+          <button className="reopen-detector-btn" onClick={openDetectorWindow}>
+            Open Detector Window
+          </button>
+        )}
+      </>
+    ));
+  }
+
   return (
     <div className="App">
-      {!gameStarted ? (
-        <StartDialog onStart={handleStartGame} />
-      ) : (
-        <>
-          <GameCanvas config={gameConfig} />
-          {ENABLE_DETECTOR && !DETECTOR_IN_NEW_WINDOW && <BraceletDetector />}
-          {ENABLE_DETECTOR && DETECTOR_IN_NEW_WINDOW && gameStarted && (
-            <button className="reopen-detector-btn" onClick={openDetectorWindow}>
-              Open Detector Window
-            </button>
-          )}
-        </>
-      )}
+      {body}
     </div>
   );
 }

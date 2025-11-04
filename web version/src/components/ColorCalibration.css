@@ -1,0 +1,82 @@
+.calib-root {
+  color: #e5e7eb;
+  background: #0b0f17;
+  padding: 16px;
+  min-height: 100vh;
+  box-sizing: border-box;
+}
+
+.calib-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.calib-actions button {
+  margin-left: 8px;
+}
+
+.calib-message {
+  margin: 8px 0;
+  padding: 8px 12px;
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 6px;
+}
+
+.calib-video-wrap {
+  position: relative;
+  width: 800px;
+  max-width: 100%;
+  margin: 12px 0;
+  border: 1px solid #111827;
+  background: #000;
+}
+
+.calib-video {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.calib-center-box {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border: 3px solid #22d3ee;
+  box-shadow: 0 0 0 2000px rgba(0,0,0,0.35);
+  pointer-events: none;
+}
+
+.calib-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.calib-block {
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  border-radius: 8px;
+  padding: 12px;
+}
+
+.calib-block .label {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.calib-block .value {
+  font-size: 12px;
+  opacity: 0.85;
+  margin-bottom: 8px;
+}
+
+.calib-offscreen {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+}

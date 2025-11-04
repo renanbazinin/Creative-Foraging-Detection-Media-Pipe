@@ -34,6 +34,18 @@ function BraceletDetector() {
   const [status, setStatus] = useState('None');
   const [detectionLog, setDetectionLog] = useState([]);
   const [cameraError, setCameraError] = useState(null);
+  // Calibration state
+  const [calibrationVisible, setCalibrationVisible] = useState(false);
+  const [calibrationTarget, setCalibrationTarget] = useState('A'); // 'A' | 'B'
+  const [calibrationA, setCalibrationA] = useState(null);
+  const [calibrationB, setCalibrationB] = useState(null);
+  // Refs to avoid stale closures inside MediaPipe callbacks
+  // Calibration state
+
+  // Refs to avoid stale closures inside MediaPipe callbacks
+  const calibrationARef = useRef(null);
+  const calibrationBRef = useRef(null);
+
   const streamRef = useRef(null);
   const isMounted = useRef(false); // Ref to track mount status
   const requestIdRef = useRef(0);   // Increment to invalidate stale in-flight camera requests
@@ -130,11 +142,52 @@ function BraceletDetector() {
     }
   }, [dbg, removeVideoEventListeners]);
 
+
+  // Convert OpenCV-style HSV (H:0-180, S:0-255, V:0-255) to CSS rgb()
+  const hsvToCssColor = (h, s, v) => {
+  const H = (h || 0) * 2; // to 0-360
+  const S = (s || 0) / 255;
+  const V = (v || 0) / 255;
+  const C = V * S;
+  const X = C * (1 - Math.abs(((H / 60) % 2) - 1));
+  const m = V - C;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (H >= 0 && H < 60)      { r1 = C; g1 = X; b1 = 0; }
+  else if (H < 120)          { r1 = X; g1 = C; b1 = 0; }
+  else if (H < 180)          { r1 = 0; g1 = C; b1 = X; }
+  else if (H < 240)          { r1 = 0; g1 = X; b1 = C; }
+  else if (H < 300)          { r1 = X; g1 = 0; b1 = C; }
+  else                       { r1 = C; g1 = 0; b1 = X; }
+  const r = Math.round((r1 + m) * 255);
+  const g = Math.round((g1 + m) * 255);
+  const b = Math.round((b1 + m) * 255);
+  return `rgb(${r}, ${g}, ${b})`;
+  };
+
+  const calibToCss = (calib) => calib ? hsvToCssColor(calib.h, calib.s, calib.v) : '#ffffff';
+
+  const getStatusCssColor = (st) => {
+  if (st === 'Player A' && calibrationA) return calibToCss(calibrationA);
+  if (st === 'Player B' && calibrationB) return calibToCss(calibrationB);
+  if (st === 'Red') return '#ff0000';
+  if (st === 'Blue') return '#0000ff';
+  return '#ffffff';
+  };
   useEffect(() => {
     isMounted.current = true;
     if (ENABLE_DETECTOR) {
       dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform, 'Visibility:', document.visibilityState);
       requestCameraPermission();
+    }
+
+    // Load existing calibrations
+    try {
+      const a = JSON.parse(localStorage.getItem('calibrationA') || 'null');
+      const b = JSON.parse(localStorage.getItem('calibrationB') || 'null');
+      if (a) setCalibrationA(a);
+      if (b) setCalibrationB(b);
+    } catch (e) {
+      dbg('No existing calibrations');
     }
 
     return () => {
@@ -165,6 +218,10 @@ function BraceletDetector() {
       }
     };
   }, [requestCameraPermission, removeVideoEventListeners, dbg]);
+
+  // Keep refs in sync with state so onResults sees latest values
+  useEffect(() => { calibrationARef.current = calibrationA; }, [calibrationA]);
+  useEffect(() => { calibrationBRef.current = calibrationB; }, [calibrationB]);
 
   // Log every second
   useEffect(() => {
@@ -291,7 +348,7 @@ function BraceletDetector() {
     ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
     ctx.restore();
 
-    let detectedStatus = 'None';
+  let detectedStatus = 'None';
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
       dbg('onResults: hands=', results.multiHandLandmarks.length);
@@ -342,18 +399,32 @@ function BraceletDetector() {
 
         // Get ROI pixels
         const roiData = ctx.getImageData(x1, y1, x2 - x1, y2 - y1);
-        detectedStatus = detectBraceletColor(roiData);
+        const calibA = calibrationARef.current;
+        const calibB = calibrationBRef.current;
+        if (calibA || calibB) {
+          detectedStatus = detectByCalibration(roiData, calibA, calibB);
+        } else {
+          detectedStatus = detectBraceletColor(roiData);
+        }
         dbg('Detection result:', detectedStatus, { roi: { x1, y1, w: x2 - x1, h: y2 - y1 } });
       }
     }
 
-    // Display status
-    const color = detectedStatus === 'Red' ? '#ff0000' : 
-                  detectedStatus === 'Blue' ? '#0000ff' : '#ffffff';
+    // Display status with calibrated color if available
+    let color = '#ffffff';
+    if (detectedStatus === 'Player A' && calibrationARef.current) {
+      color = calibToCss(calibrationARef.current);
+    } else if (detectedStatus === 'Player B' && calibrationBRef.current) {
+      color = calibToCss(calibrationBRef.current);
+    } else if (detectedStatus === 'Red') {
+      color = '#ff0000';
+    } else if (detectedStatus === 'Blue') {
+      color = '#0000ff';
+    }
     
     ctx.fillStyle = color;
     ctx.font = 'bold 32px Arial';
-    ctx.fillText(`Status: ${detectedStatus}`, 10, 40);
+  ctx.fillText(`Status: ${detectedStatus}`, 10, 40);
 
     setStatus(detectedStatus);
   };
@@ -431,6 +502,77 @@ function BraceletDetector() {
     return 'None';
   };
 
+  // Calibration-based detection: compare HSV to learned targets
+  const detectByCalibration = (imageData, calibA, calibB) => {
+    const data = imageData.data;
+    let countA = 0;
+    let countB = 0;
+    const match = (hsv, calib) => {
+      if (!calib) return false;
+      const [h, s, v] = hsv;
+      const withinH = Math.abs(h - calib.h) <= calib.dH;
+      const withinS = Math.abs(s - calib.s) <= calib.dS;
+      const withinV = Math.abs(v - calib.v) <= calib.dV;
+      return withinH && withinS && withinV;
+    };
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const hsv = rgbToHsv(r, g, b);
+      if (calibA && match(hsv, calibA)) countA++;
+      if (calibB && match(hsv, calibB)) countB++;
+    }
+    if (calibA && countA > COLOR_THRESHOLDS.pixelThreshold) return 'Player A';
+    if (calibB && countB > COLOR_THRESHOLDS.pixelThreshold) return 'Player B';
+    return 'None';
+  };
+
+  // Compute average HSV in center square
+  const computeCenterAverageHSV = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return null;
+    const size = 80; // calibration ROI size
+    const x1 = Math.floor(canvas.width / 2 - size / 2);
+    const y1 = Math.floor(canvas.height / 2 - size / 2);
+    const ctx = canvas.getContext('2d');
+    const roi = ctx.getImageData(x1, y1, size, size);
+    const data = roi.data;
+    let sumH = 0, sumS = 0, sumV = 0, n = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const hsv = rgbToHsv(data[i], data[i+1], data[i+2]);
+      sumH += hsv[0]; sumS += hsv[1]; sumV += hsv[2];
+      n++;
+    }
+    if (n === 0) return null;
+    const avg = { h: sumH / n, s: sumS / n, v: sumV / n };
+    // Default tolerances; can be adjusted via UI later
+    return { ...avg, dH: 10, dS: 60, dV: 60 };
+  };
+
+  const saveCalibration = (target) => {
+    const calib = computeCenterAverageHSV();
+    if (!calib) return;
+    if (target === 'A') {
+      setCalibrationA(calib);
+      localStorage.setItem('calibrationA', JSON.stringify(calib));
+    } else {
+      setCalibrationB(calib);
+      localStorage.setItem('calibrationB', JSON.stringify(calib));
+    }
+    setCalibrationVisible(false);
+  };
+
+  const clearCalibration = (target) => {
+    if (target === 'A') {
+      setCalibrationA(null);
+      localStorage.removeItem('calibrationA');
+    } else {
+      setCalibrationB(null);
+      localStorage.removeItem('calibrationB');
+    }
+  };
+
   const rgbToHsv = (r, g, b) => {
     r /= 255;
     g /= 255;
@@ -490,6 +632,7 @@ function BraceletDetector() {
   };
 
   return (
+    <>
     <div className={`detector-window ${isMinimized ? 'minimized' : ''}`}>
       <div className="detector-header">
         <span>Bracelet Detector</span>
@@ -522,14 +665,48 @@ function BraceletDetector() {
           
           <div className="detector-info">
             <div className="status-display">
-              Status: <span className={`status-${status.toLowerCase()}`}>{status}</span>
+              Status: <span style={{ color: getStatusCssColor(status), fontWeight: 700 }}>{status}</span>
             </div>
             <div className="log-count">
               Logs: {detectionLog ? detectionLog.length : 0}
             </div>
+            <div className="calib-summary" style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
+              A: {calibrationA ? `h${calibrationA.h.toFixed(0)}±${calibrationA.dH}` : '—'} | B: {calibrationB ? `h${calibrationB.h.toFixed(0)}±${calibrationB.dH}` : '—'}
+            </div>
           </div>
         </div>
     </div>
+      {calibrationVisible && (
+        <div className="dialog-overlay">
+          <div className="dialog-box">
+            <h2>Calibrate Bracelet Color</h2>
+            <p style={{ marginTop: -8 }}>Place the bracelet in the center square, then save for Player A and Player B. You can skip and use default Red/Blue.</p>
+            <div style={{ position: 'relative', width: 400, maxWidth: '100%', height: 280, background: '#000', border: '1px solid #333', margin: '12px 0' }}>
+              {/* Preview area with center square overlay; sampling reads from main canvas */}
+              <div style={{ position: 'absolute', inset: 0 }} />
+              <div style={{ position: 'absolute', left: '50%', top: '50%', width: 80, height: 80, transform: 'translate(-50%, -50%)', border: '3px solid #22d3ee', boxShadow: '0 0 0 2000px rgba(0,0,0,0.3)' }} />
+            </div>
+            <div className="dialog-buttons" style={{ justifyContent: 'space-between' }}>
+              <div>
+                <label style={{ marginRight: 8 }}>Target:</label>
+                <select value={calibrationTarget} onChange={(e) => setCalibrationTarget(e.target.value)}>
+                  <option value="A">Player A</option>
+                  <option value="B">Player B</option>
+                </select>
+              </div>
+              <div>
+                <button className="dialog-button ok" onClick={() => saveCalibration(calibrationTarget)}>Save</button>
+                <button className="dialog-button cancel" style={{ marginLeft: 8 }} onClick={() => clearCalibration(calibrationTarget)}>Clear</button>
+                <button className="dialog-button" style={{ marginLeft: 8 }} onClick={() => setCalibrationVisible(false)}>Close</button>
+              </div>
+            </div>
+            <div style={{ fontSize: 12, opacity: 0.8, marginTop: 8 }}>
+              Tip: ensure good lighting and fill the square with the bracelet color.
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
