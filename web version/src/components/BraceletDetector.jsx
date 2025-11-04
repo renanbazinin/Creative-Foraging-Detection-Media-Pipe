@@ -1,7 +1,9 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Hands } from '@mediapipe/hands';
 import { Camera } from '@mediapipe/camera_utils';
 import './BraceletDetector.css';
+
+const ENABLE_DETECTOR = true; // Master switch
 
 // Debug logging helper
 const DEBUG = true;
@@ -26,105 +28,156 @@ const COLOR_THRESHOLDS = {
 function BraceletDetector() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
-  const [status, setStatus] = useState('None');
-  const [isMinimized, setIsMinimized] = useState(false);
-  const [detectionLog, setDetectionLog] = useState([]);
-  const [cameraError, setCameraError] = useState(null);
-  const [cameraPermission, setCameraPermission] = useState('prompt');
   const handsRef = useRef(null);
   const cameraRef = useRef(null);
-  const lastLogTimeRef = useRef(Date.now());
+  const [isMinimized, setIsMinimized] = useState(false);
+  const [status, setStatus] = useState('None');
+  const [detectionLog, setDetectionLog] = useState([]);
+  const [cameraError, setCameraError] = useState(null);
+  const streamRef = useRef(null);
+  const isMounted = useRef(false); // Ref to track mount status
+  const requestIdRef = useRef(0);   // Increment to invalidate stale in-flight camera requests
+  const initializedForRequestRef = useRef(null); // Track which request id initialized MediaPipe
+
+  const dbg = useCallback((...args) => {
+    if (DEBUG) console.log('[Detector]', ...args);
+  }, []);
+
+  const removeVideoEventListeners = useCallback((video) => {
+    // This is a placeholder. The actual implementation was removed in a previous step.
+    // We can re-add specific listener removal if needed.
+    dbg('Removing video event listeners (if any were attached).');
+  }, [dbg]);
+
+  const requestCameraPermission = useCallback(async () => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    // Stop any existing stream before starting a new one.
+    if (streamRef.current) {
+      dbg('Stopping existing stream before requesting new one.');
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+    }
+
+    addVideoEventListeners(video);
+    // Invalidate any previous in-flight requests and capture this request id
+    const myRequestId = ++requestIdRef.current;
+    initializedForRequestRef.current = null;
+
+    dbg('Requesting getUserMedia...');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+
+      // If component unmounted or a newer request started, abandon this stream
+      if (!isMounted.current || myRequestId !== requestIdRef.current) {
+        dbg('Stale camera request (unmounted or superseded). Stopping stream.');
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
+      streamRef.current = stream;
+      dbg('getUserMedia success. Tracks:', stream.getVideoTracks());
+      // Attach stream and wait for metadata to ensure dimensions are known
+      video.srcObject = stream;
+
+      await new Promise((resolve) => {
+        const alreadyReady = video.readyState >= 1 && video.videoWidth > 0 && video.videoHeight > 0;
+        if (alreadyReady) return resolve();
+        const onLoaded = () => {
+          video.removeEventListener('loadedmetadata', onLoaded);
+          resolve();
+        };
+        video.addEventListener('loadedmetadata', onLoaded, { once: true });
+        // Safety timeout in case event never fires
+        setTimeout(() => {
+          video.removeEventListener('loadedmetadata', onLoaded);
+          resolve();
+        }, 1500);
+      });
+
+      // Double-check request validity again before playing
+      if (!isMounted.current || myRequestId !== requestIdRef.current) {
+        dbg('Stale request before play(). Stopping stream.');
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+
+      try {
+        await video.play();
+        dbg('video.play() promise resolved. Video should be playing.');
+      } catch (error) {
+        console.error('[Detector] video.play() promise rejected:', error);
+        dbg('video.play() promise rejected:', error.name, error.message);
+        // If aborted due to a newer request, stop and exit
+        if (myRequestId !== requestIdRef.current) {
+          dbg('play() aborted due to newer request.');
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        // Otherwise, proceed; some browsers reject then auto-play later
+      }
+
+      // Initialize MediaPipe once per valid request
+      if (initializedForRequestRef.current !== myRequestId) {
+        initializedForRequestRef.current = myRequestId;
+        dbg('Initializing MediaPipe for request id', myRequestId);
+        initializeMediaPipe();
+      }
+    } catch (error) {
+      console.error('[Detector] Error accessing camera:', error);
+      dbg('getUserMedia error:', error.name, error.message);
+    }
+  }, [dbg, removeVideoEventListeners]);
 
   useEffect(() => {
-  dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform, 'Visibility:', document.visibilityState);
-    requestCameraPermission();
+    isMounted.current = true;
+    if (ENABLE_DETECTOR) {
+      dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform, 'Visibility:', document.visibilityState);
+      requestCameraPermission();
+    }
+
     return () => {
+      isMounted.current = false;
+      dbg('Cleanup: Component unmounting.');
+      // Invalidate any in-flight requests
+      requestIdRef.current += 1;
+      initializedForRequestRef.current = null;
       if (cameraRef.current) {
-        dbg('Stopping camera on unmount');
+        dbg('Cleanup: Stopping MediaPipe camera.');
         cameraRef.current.stop();
+        cameraRef.current = null;
+      }
+      if (streamRef.current) {
+        dbg('Cleanup: Stopping camera stream.');
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+      const video = videoRef.current;
+      if (video) {
+        video.srcObject = null;
+        removeVideoEventListeners(video);
+      }
+      if (handsRef.current) {
+        dbg('Cleanup: Closing MediaPipe hands.');
+        handsRef.current.close();
+        handsRef.current = null;
       }
     };
-  }, []);
+  }, [requestCameraPermission, removeVideoEventListeners, dbg]);
 
   // Log every second
   useEffect(() => {
-    const interval = setInterval(() => {
-      logDetection(status);
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [status]);
-
-  const requestCameraPermission = async () => {
-    try {
-      // Explicitly request camera permission
-      dbg('Requesting getUserMedia...');
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
-          facingMode: 'user'
-        },
-        audio: false
+    const logInterval = setInterval(() => {
+      // Use a function with setStatus to get the latest status
+      setStatus(currentStatus => {
+        logDetection(currentStatus);
+        return currentStatus;
       });
-      dbg('getUserMedia success. Tracks:', stream.getTracks().map(t => ({ kind: t.kind, label: t.label, settings: t.getSettings?.() }))); 
-      setCameraPermission('granted');
+    }, 1000);
 
-      if (videoRef.current) {
-  const v = videoRef.current;
-  v.srcObject = stream;
-  v.muted = true; // help autoplay policies
-  v.setAttribute('playsinline', '');
-  v.autoplay = true;
-
-        // Attach diagnostics
-        const evts = ['loadedmetadata','canplay','play','pause','stalled','suspend','ended','waiting','error','resize'];
-        evts.forEach(e => v.addEventListener(e, () => dbg('video event:', e, { videoWidth: v.videoWidth, videoHeight: v.videoHeight, readyState: v.readyState })));
-
-        // Ensure metadata/dimensions are available before initializing
-        const waitForReady = () => {
-          // Some browsers report videoWidth=0 until playback begins
-          if (v.videoWidth > 0 && v.videoHeight > 0) {
-            v.removeEventListener('loadedmetadata', waitForReady);
-            v.removeEventListener('canplay', waitForReady);
-            // Small delay to allow painting
-            setTimeout(() => {
-              dbg('Video ready. Initializing MediaPipe...', { w: v.videoWidth, h: v.videoHeight });
-              initializeMediaPipe();
-            }, 100);
-          }
-        };
-
-        v.addEventListener('loadedmetadata', waitForReady);
-        v.addEventListener('canplay', waitForReady);
-
-        // Attempt to start playback (required on some browsers)
-        try {
-          await v.play();
-          dbg('video.play() resolved');
-        } catch (playErr) {
-          // If autoplay is blocked, user can click anywhere in popup to resume
-          console.warn('[Detector] Video autoplay blocked; waiting for user gesture to start.', playErr);
-          const resume = async () => {
-            try { await v.play(); dbg('video.play() resumed after user gesture'); } catch (e) { dbg('video.play() retry failed', e); }
-            document.removeEventListener('click', resume, true);
-          };
-          document.addEventListener('click', resume, true);
-        }
-
-        // Watchdog: if not ready in 2000ms, try nudging playback again
-        setTimeout(async () => {
-          if ((v.videoWidth === 0 || v.videoHeight === 0) || v.readyState < 2) {
-            dbg('Watchdog: video not ready, retrying play()', { readyState: v.readyState, w: v.videoWidth, h: v.videoHeight });
-            try { await v.play(); dbg('Watchdog: play retry resolved'); } catch (e) { dbg('Watchdog: play retry failed', e); }
-          }
-        }, 2000);
-      }
-    } catch (err) {
-      console.error('Camera permission error:', err);
-      setCameraError(`Camera access denied: ${err.message}`);
-      setCameraPermission('denied');
-    }
-  };
+    return () => clearInterval(logInterval);
+  }, []); // Empty dependency array means this runs once on mount
 
   const logDetection = (detectedStatus) => {
     const timestamp = new Date().toISOString();
@@ -263,12 +316,12 @@ function BraceletDetector() {
     ctx.strokeStyle = 'white';
     ctx.lineWidth = 2;
     const connections = [
-      [0,1],[1,2],[2,3],[3,4], // Thumb
-      [0,5],[5,6],[6,7],[7,8], // Index
-      [0,9],[9,10],[10,11],[11,12], // Middle
-      [0,13],[13,14],[14,15],[15,16], // Ring
-      [0,17],[17,18],[18,19],[19,20], // Pinky
-      [5,9],[9,13],[13,17] // Palm
+      [0, 1], [1, 2], [2, 3], [3, 4], // Thumb
+      [0, 5], [5, 6], [6, 7], [7, 8], // Index
+      [5, 9], [9, 13], [13, 17], // Palm
+      [0, 9], [9, 10], [10, 11], [11, 12], // Middle
+      [0, 13], [13, 14], [14, 15], [15, 16], // Ring
+      [0, 17], [17, 18], [18, 19], [19, 20], // Pinky
     ];
 
     connections.forEach(([start, end]) => {
@@ -355,7 +408,12 @@ function BraceletDetector() {
     const s = max === 0 ? 0 : (delta / max) * 255;
     const v = max * 255;
 
-    return [h / 2, s, v]; // Convert to 0-180 for H (OpenCV style)
+    return [h / 2, s, v];
+  };
+
+  const addVideoEventListeners = (video) => {
+    // This function is a placeholder for adding video event listeners if needed in the future.
+    dbg('Adding video event listeners (if needed in the future).');
   };
 
   const downloadLogs = () => {
@@ -397,53 +455,33 @@ function BraceletDetector() {
         </div>
       </div>
       
-      {!isMinimized && (
-        <div className="detector-content">
-          {cameraPermission === 'prompt' && (
-            <div className="camera-prompt">
-              <p>📹 Requesting camera access...</p>
-            </div>
-          )}
+      <div className="detector-content" style={{ display: isMinimized ? 'none' : 'block' }}>
+          <video
+            ref={videoRef}
+            autoPlay
+            playsInline
+            muted={true}
+            style={{
+              position: 'absolute',
+              top: '-9999px',
+              left: '-9999px',
+              width: '1px',
+              height: '1px',
+            }}
+          ></video>
+          <canvas ref={canvasRef} className="output_canvas" style={{
+            transform: 'scaleX(-1)',
+          }} />
           
-          {cameraPermission === 'denied' && (
-            <div className="camera-error">
-              <p>❌ Camera access denied</p>
-              <p>{cameraError}</p>
-              <button onClick={requestCameraPermission}>Try Again</button>
+          <div className="detector-info">
+            <div className="status-display">
+              Status: <span className={`status-${status.toLowerCase()}`}>{status}</span>
             </div>
-          )}
-          
-          {cameraPermission === 'granted' && (
-            <>
-              <video
-                ref={videoRef}
-                autoPlay
-                playsInline
-                // Keep the video renderable so canvases receive frames in all browsers
-                style={{
-                  position: 'absolute',
-                  width: '1px',
-                  height: '1px',
-                  opacity: 0,
-                  pointerEvents: 'none',
-                  left: '-9999px',
-                  top: '-9999px'
-                }}
-              />
-              <canvas ref={canvasRef} className="detector-canvas" />
-              
-              <div className="detector-info">
-                <div className="status-display">
-                  Status: <span className={`status-${status.toLowerCase()}`}>{status}</span>
-                </div>
-                <div className="log-count">
-                  Logs: {detectionLog.length}
-                </div>
-              </div>
-            </>
-          )}
+            <div className="log-count">
+              Logs: {detectionLog ? detectionLog.length : 0}
+            </div>
+          </div>
         </div>
-      )}
     </div>
   );
 }
