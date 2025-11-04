@@ -5,7 +5,6 @@ const DEBUG = true;
 const dbg = (...args) => { if (DEBUG) console.log('[Calibrate]', ...args); };
 
 const ROI_SIZE = 100; // px
-const DEFAULT_TOL = { dH: 10, dS: 60, dV: 60 };
 
 function ColorCalibration() {
   const videoRef = useRef(null);
@@ -130,8 +129,7 @@ function ColorCalibration() {
       sumH += h; sumS += s; sumV += v; n++;
     }
     if (n === 0) return null;
-    const avg = { h: sumH / n, s: sumS / n, v: sumV / n };
-    return { ...avg, ...DEFAULT_TOL };
+    return { h: sumH / n, s: sumS / n, v: sumV / n };
   };
 
   const saveCalibration = (which) => {
@@ -140,11 +138,11 @@ function ColorCalibration() {
     if (which === 'A') {
       localStorage.setItem('calibrationA', JSON.stringify(calib));
       setCalibrationA(calib);
-      setMessage(`Saved Player A: h${calib.h.toFixed(0)}±${calib.dH}`);
+      setMessage(`Saved Player A: h${calib.h.toFixed(0)}`);
     } else {
       localStorage.setItem('calibrationB', JSON.stringify(calib));
       setCalibrationB(calib);
-      setMessage(`Saved Player B: h${calib.h.toFixed(0)}±${calib.dH}`);
+      setMessage(`Saved Player B: h${calib.h.toFixed(0)}`);
     }
   };
 
@@ -171,6 +169,8 @@ function ColorCalibration() {
 
       {message && <div className="calib-message">{message}</div>}
 
+      {/* Sensitivity removed: binary decision handled in detector */}
+
       <div className="calib-video-wrap">
         <video
           ref={videoRef}
@@ -186,7 +186,7 @@ function ColorCalibration() {
       <div className="calib-controls">
         <div className="calib-block">
           <div className="label">Player A</div>
-          <div className="value">{calibrationA ? `h${calibrationA.h.toFixed(0)} s${calibrationA.s.toFixed(0)} v${calibrationA.v.toFixed(0)} ±(${calibrationA.dH}/${calibrationA.dS}/${calibrationA.dV})` : '—'}</div>
+          <div className="value">{calibrationA ? `h${calibrationA.h.toFixed(0)} s${calibrationA.s.toFixed(0)} v${calibrationA.v.toFixed(0)}` : '—'}</div>
           <div className="buttons">
             <button onClick={() => saveCalibration('A')} disabled={!ready}>Save A</button>
             <button onClick={() => clearCalibration('A')}>Clear A</button>
@@ -194,7 +194,7 @@ function ColorCalibration() {
         </div>
         <div className="calib-block">
           <div className="label">Player B</div>
-          <div className="value">{calibrationB ? `h${calibrationB.h.toFixed(0)} s${calibrationB.s.toFixed(0)} v${calibrationB.v.toFixed(0)} ±(${calibrationB.dH}/${calibrationB.dS}/${calibrationB.dV})` : '—'}</div>
+          <div className="value">{calibrationB ? `h${calibrationB.h.toFixed(0)} s${calibrationB.s.toFixed(0)} v${calibrationB.v.toFixed(0)}` : '—'}</div>
           <div className="buttons">
             <button onClick={() => saveCalibration('B')} disabled={!ready}>Save B</button>
             <button onClick={() => clearCalibration('B')}>Clear B</button>
