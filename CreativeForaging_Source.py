@@ -5,6 +5,9 @@
 # AU 2018
 
 from psychopy import visual, core, event, gui, data
+import subprocess
+import sys
+import os
 import pandas as pd
 import numpy as np
 from psychopy.visual import ShapeStim
@@ -15,20 +18,50 @@ import ppc3
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-# Create popup information box
-popup = gui.Dlg(title = "The Creative Game")
-popup.addField("ID: ") # Empty box
-popup.addField("Condition: ", choices=["individual", "group" ])
-popup.addField("Time (in minutes): ")
-popup.show()
-if popup.OK: # To retrieve data from popup window
-    ID = popup.data
-elif popup.Cancel: # To cancel the experiment if popup is closed
-    core.quit()
+def run_calibration_tool():
+    here = os.path.dirname(os.path.abspath(__file__))
+    calib_script = os.path.join(here, 'player_detector', 'calibrate_colors.py')
+    if not os.path.exists(calib_script):
+        print('Calibration script not found at', calib_script)
+        return
+    pyexe = sys.executable or 'python'
+    try:
+        subprocess.run([pyexe, calib_script], check=False)
+    except Exception as e:
+        print(f'Warning: failed to run calibration tool: {e}')
+
+# Create and show the main dialog; allow launching calibration without losing inputs
+id_default = ""
+cond_default = "individual"
+time_default = ""
+while True:
+    popup = gui.Dlg(title = "The Creative Game")
+    popup.addField("ID: ", id_default)
+    popup.addField("Condition: ", cond_default, choices=["individual", "group" ])
+    popup.addField("Time (in minutes): ", time_default)
+    popup.addField("Action: ", "Start", choices=["Start", "Calibrate"])
+    popup.show()
+    if popup.OK:
+        data_vals = popup.data
+        id_default = data_vals[0]
+        cond_default = data_vals[1]
+        time_default = data_vals[2]
+        action = data_vals[3]
+        if action == "Calibrate":
+            run_calibration_tool()
+            # loop back to keep dialog open with retained values
+            continue
+        else:
+            ID = [id_default, cond_default, time_default]
+            break
+    else:
+        core.quit()
 
 
 # experiment time in secs
 EXP_TIME = int(ID[2])*60
+
+# Calibration can now be launched from the pre-menu via a dedicated button
 
 # define window
 win = visual.Window(fullscr=True, units = 'height', color = 'black')

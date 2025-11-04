@@ -7,19 +7,20 @@ import time
 from datetime import datetime
 
 """
-Bracelet Detector (Red/Blue only)
+Bracelet Detector (Calibrated A/B or Red/Blue fallback)
 - Detects the highest hand in frame using MediaPipe Hands
-- Samples a wrist-centered ROI and classifies dominant color as Red, Blue, or None
+- Samples a wrist-centered ROI and classifies either:
+    - Player A vs Player B if calibration.json exists with both profiles
+    - Red vs Blue fallback (original behavior) if calibration missing
 - Writes logs every second to:
-  - player_detector/logs/detector_status.txt  (CSV lines: ISO8601,timestamp,status)
-  - player_detector/logs/detector_status.jsonl (JSONL: one JSON object per line)
+    - player_detector/logs/detector_status.txt  (CSV lines: ISO8601,timestamp,status)
+    - player_detector/logs/detector_status.jsonl (JSONL: one JSON object per line)
 
 Controls:
 - Press 'q' to quit
-- Trackbars allow tuning of saturation/value minima, ROI size and pixel threshold
+- Trackbars allow tuning of saturation/value minima, ROI size and pixel threshold (used in Red/Blue mode)
 
 Notes:
-- Only Red and Blue detection are active. Yellow/Purple/Black are commented out by request.
 - To use OBS Virtual Camera, ensure it is started in OBS (Tools -> VirtualCam -> Start).
 """
 
@@ -28,6 +29,7 @@ USE_OBS_CAMERA = False  # Set False to use default camera index 0
 LOG_DIR = os.path.join(os.path.dirname(__file__), 'logs')
 TXT_LOG = os.path.join(LOG_DIR, 'detector_status.txt')
 JSONL_LOG = os.path.join(LOG_DIR, 'detector_status.jsonl')
+CALIB_PATH = os.path.join(os.path.dirname(__file__), 'calibration.json')
 
 os.makedirs(LOG_DIR, exist_ok=True)
 
@@ -105,6 +107,44 @@ def init_window():
 
 # Ensure window/trackbars exist at startup
 init_window()
+
+# --- Calibration load ---
+def load_calibration(path: str):
+    try:
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        a = data.get('playerA')
+        b = data.get('playerB')
+        # Validate structure
+        def ok(x):
+            return isinstance(x, dict) and all(k in x for k in ('h','s','v'))
+        if ok(a) and ok(b):
+            return a, b
+    except Exception:
+        pass
+    return None, None
+
+calibA, calibB = load_calibration(CALIB_PATH)
+if calibA and calibB:
+    print('Calibration loaded: using Player A/B mode')
+else:
+    print('No calibration found: using Red/Blue mode')
+
+# --- Color helpers ---
+def _clamp(v, lo, hi):
+    return max(lo, min(hi, v))
+
+def calib_to_bgr(calib):
+    """Convert a calibration HSV (OpenCV ranges) to a BGR color tuple for drawing."""
+    try:
+        h = int(round(_clamp(float(calib['h']), 0.0, 179.0)))
+        s = int(round(_clamp(float(calib['s']), 0.0, 255.0)))
+        v = int(round(_clamp(float(calib['v']), 0.0, 255.0)))
+        hsv_px = np.uint8([[[h, s, v]]])  # 1x1 HSV image
+        bgr_px = cv2.cvtColor(hsv_px, cv2.COLOR_HSV2BGR)[0, 0]
+        return (int(bgr_px[0]), int(bgr_px[1]), int(bgr_px[2]))
+    except Exception:
+        return (255, 255, 255)
 
 # --- Logging helpers ---
 _last_log_ts = 0.0
@@ -210,34 +250,60 @@ while cap.isOpened():
 
             roi = frame[y1:y2, x1:x2]
             if roi.size > 0:
-                hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
-                # masks
-                mask_red1 = cv2.inRange(hsv, LOWER_RED_1, UPPER_RED_1)
-                mask_red2 = cv2.inRange(hsv, LOWER_RED_2, UPPER_RED_2)
-                red_mask = cv2.bitwise_or(mask_red1, mask_red2)
-                blue_mask = cv2.inRange(hsv, LOWER_BLUE, UPPER_BLUE)
+                # If calibration available for both A and B, do binary A/B by nearest HSV
+                if calibA and calibB:
+                    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+                    H = hsv[:, :, 0].astype(np.float32)
+                    S = hsv[:, :, 1].astype(np.float32)
+                    V = hsv[:, :, 2].astype(np.float32)
+                    # Distances with circular hue component
+                    def circ_hue_dist(h, hc):
+                        d = np.abs(h - hc)
+                        return np.minimum(d, 180.0 - d)
+                    dA = circ_hue_dist(H, float(calibA['h'])) * 2.0 + np.abs(S - float(calibA['s'])) * 0.5 + np.abs(V - float(calibA['v'])) * 0.5
+                    dB = circ_hue_dist(H, float(calibB['h'])) * 2.0 + np.abs(S - float(calibB['s'])) * 0.5 + np.abs(V - float(calibB['v'])) * 0.5
+                    votesA = np.count_nonzero(dA <= dB)
+                    votesB = np.count_nonzero(dB < dA)
+                    status = 'playerA' if votesA >= votesB else 'playerB'
 
-                red_px = cv2.countNonZero(red_mask)
-                blue_px = cv2.countNonZero(blue_mask)
-
-                if red_px > pixel_thresh:
-                    status = 'red'
-                elif blue_px > pixel_thresh:
-                    status = 'blue'
+                    # Debug overlay
+                    cv2.putText(frame, f'A votes: {votesA}', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 255), 2)
+                    cv2.putText(frame, f'B votes: {votesB}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+                    cv2.putText(frame, 'Mode: Calibrated A/B', (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
                 else:
-                    status = 'none'
+                    # Fallback: Red/Blue masks
+                    hsv = cv2.cvtColor(roi, cv2.COLOR_BGR2HSV)
+                    mask_red1 = cv2.inRange(hsv, LOWER_RED_1, UPPER_RED_1)
+                    mask_red2 = cv2.inRange(hsv, LOWER_RED_2, UPPER_RED_2)
+                    red_mask = cv2.bitwise_or(mask_red1, mask_red2)
+                    blue_mask = cv2.inRange(hsv, LOWER_BLUE, UPPER_BLUE)
 
-                # Debug overlay
-                cv2.putText(frame, f'Red: {red_px}', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
-                cv2.putText(frame, f'Blue: {blue_px}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
-                cv2.putText(frame, f'Threshold: {pixel_thresh}', (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+                    red_px = cv2.countNonZero(red_mask)
+                    blue_px = cv2.countNonZero(blue_mask)
+
+                    if red_px > pixel_thresh:
+                        status = 'red'
+                    elif blue_px > pixel_thresh:
+                        status = 'blue'
+                    else:
+                        status = 'none'
+
+                    # Debug overlay
+                    cv2.putText(frame, f'Red: {red_px}', (10, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 255), 2)
+                    cv2.putText(frame, f'Blue: {blue_px}', (10, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
+                    cv2.putText(frame, f'Threshold: {pixel_thresh}', (10, 130), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
 
     # Log once per second
     log_status(status)
 
     # UI summary
+    # Choose indicator color: calibrated color for A/B when available, else red/blue fallback
     color = (255, 255, 255)
-    if status == 'red':
+    if status == 'playerA' and calibA:
+        color = calib_to_bgr(calibA)
+    elif status == 'playerB' and calibB:
+        color = calib_to_bgr(calibB)
+    elif status == 'red':
         color = (0, 0, 255)
     elif status == 'blue':
         color = (255, 0, 0)
@@ -245,6 +311,19 @@ while cap.isOpened():
     hands_count = len(results.multi_hand_landmarks) if results.multi_hand_landmarks else 0
     cv2.putText(frame, f'Hands: {hands_count}', (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
     cv2.putText(frame, f'Status: {status}', (10, 160), cv2.FONT_HERSHEY_SIMPLEX, 0.9, color, 2)
+
+    # Draw small swatches for calibrated A/B colors (if available)
+    swatch_y = 190
+    if calibA:
+        a_col = calib_to_bgr(calibA)
+        cv2.rectangle(frame, (10, swatch_y), (30, swatch_y + 20), a_col, -1)
+        cv2.rectangle(frame, (10, swatch_y), (30, swatch_y + 20), (50, 50, 50), 1)
+        cv2.putText(frame, 'A', (34, swatch_y + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.6, a_col, 2)
+    if calibB:
+        b_col = calib_to_bgr(calibB)
+        cv2.rectangle(frame, (70, swatch_y), (90, swatch_y + 20), b_col, -1)
+        cv2.rectangle(frame, (70, swatch_y), (90, swatch_y + 20), (50, 50, 50), 1)
+        cv2.putText(frame, 'B', (94, swatch_y + 16), cv2.FONT_HERSHEY_SIMPLEX, 0.6, b_col, 2)
 
     cv2.imshow('Bracelet Detector', frame)
     if cv2.waitKey(5) & 0xFF == ord('q'):
