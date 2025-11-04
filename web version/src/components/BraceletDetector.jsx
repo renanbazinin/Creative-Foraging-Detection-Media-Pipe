@@ -237,7 +237,30 @@ function BraceletDetector() {
       handsRef.current = hands;
 
       if (videoRef.current) {
-        const camera = new Camera(videoRef.current, {
+        // Resolve Camera constructor in both dev and production builds
+        const CameraCtor = await (async () => {
+          try {
+            if (typeof Camera === 'function') return Camera;
+          } catch (_) { /* continue to CDN fallback */ }
+          if (typeof window !== 'undefined' && window.Camera && typeof window.Camera === 'function') {
+            return window.Camera;
+          }
+          await new Promise((resolve, reject) => {
+            const id = 'mp-camera-utils-cdn-script';
+            if (document.getElementById(id)) return resolve();
+            const s = document.createElement('script');
+            s.id = id;
+            s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js';
+            s.async = true;
+            s.onload = () => resolve();
+            s.onerror = (e) => reject(new Error('Failed to load MediaPipe Camera from CDN'));
+            document.head.appendChild(s);
+          });
+          if (window.Camera && typeof window.Camera === 'function') return window.Camera;
+          throw new Error('MediaPipe Camera constructor not available after CDN load');
+        })();
+
+        const camera = new CameraCtor(videoRef.current, {
           onFrame: async () => {
             await hands.send({ image: videoRef.current });
           },
