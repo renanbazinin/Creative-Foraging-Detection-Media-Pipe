@@ -4,7 +4,6 @@ const BLOCK_SIZE = 0.06; // Relative to screen height
 const GRID_STEP = 0.07; // Grid spacing
 
 export const createInitialBlocks = () => {
-  // Center the blocks horizontally and vertically on screen
   const positions = [
     [-0.315, 0.0], [-0.245, 0.0], [-0.175, 0.0], [-0.105, 0.0], [-0.035, 0.0],
     [0.035, 0.0], [0.105, 0.0], [0.175, 0.0], [0.245, 0.0], [0.315, 0.0]
