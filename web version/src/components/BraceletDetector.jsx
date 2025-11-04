@@ -36,7 +36,7 @@ function BraceletDetector() {
   const lastLogTimeRef = useRef(Date.now());
 
   useEffect(() => {
-    dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform);
+  dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform, 'Visibility:', document.visibilityState);
     requestCameraPermission();
     return () => {
       if (cameraRef.current) {
@@ -63,14 +63,18 @@ function BraceletDetector() {
           width: { ideal: 640 },
           height: { ideal: 480 },
           facingMode: 'user'
-        }
+        },
+        audio: false
       });
       dbg('getUserMedia success. Tracks:', stream.getTracks().map(t => ({ kind: t.kind, label: t.label, settings: t.getSettings?.() }))); 
       setCameraPermission('granted');
 
       if (videoRef.current) {
-        const v = videoRef.current;
-        v.srcObject = stream;
+  const v = videoRef.current;
+  v.srcObject = stream;
+  v.muted = true; // help autoplay policies
+  v.setAttribute('playsinline', '');
+  v.autoplay = true;
 
         // Attach diagnostics
         const evts = ['loadedmetadata','canplay','play','pause','stalled','suspend','ended','waiting','error','resize'];
@@ -106,6 +110,14 @@ function BraceletDetector() {
           };
           document.addEventListener('click', resume, true);
         }
+
+        // Watchdog: if not ready in 2000ms, try nudging playback again
+        setTimeout(async () => {
+          if ((v.videoWidth === 0 || v.videoHeight === 0) || v.readyState < 2) {
+            dbg('Watchdog: video not ready, retrying play()', { readyState: v.readyState, w: v.videoWidth, h: v.videoHeight });
+            try { await v.play(); dbg('Watchdog: play retry resolved'); } catch (e) { dbg('Watchdog: play retry failed', e); }
+          }
+        }, 2000);
       }
     } catch (err) {
       console.error('Camera permission error:', err);
