@@ -93,6 +93,50 @@
   font-size: 14px;
 }
 
+.camera-prompt,
+.camera-error {
+  width: 640px;
+  height: 480px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(0, 0, 0, 0.8);
+  border: 1px solid #333;
+  border-radius: 5px;
+  color: white;
+  text-align: center;
+  padding: 20px;
+}
+
+.camera-prompt p {
+  font-size: 18px;
+  margin: 10px 0;
+}
+
+.camera-error p {
+  font-size: 16px;
+  margin: 10px 0;
+  color: #ff6b6b;
+}
+
+.camera-error button {
+  margin-top: 20px;
+  background-color: #4CAF50;
+  color: white;
+  border: none;
+  padding: 10px 20px;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 16px;
+  transition: all 0.3s;
+}
+
+.camera-error button:hover {
+  background-color: #45a049;
+  transform: scale(1.05);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .detector-window {
@@ -100,7 +144,9 @@
     right: 10px;
   }
 
-  .detector-canvas {
+  .detector-canvas,
+  .camera-prompt,
+  .camera-error {
     width: 320px;
     height: 240px;
   }

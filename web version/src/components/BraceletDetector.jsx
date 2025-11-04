@@ -25,12 +25,14 @@ function BraceletDetector() {
   const [status, setStatus] = useState('None');
   const [isMinimized, setIsMinimized] = useState(false);
   const [detectionLog, setDetectionLog] = useState([]);
+  const [cameraError, setCameraError] = useState(null);
+  const [cameraPermission, setCameraPermission] = useState('prompt');
   const handsRef = useRef(null);
   const cameraRef = useRef(null);
   const lastLogTimeRef = useRef(Date.now());
 
   useEffect(() => {
-    initializeMediaPipe();
+    requestCameraPermission();
     return () => {
       if (cameraRef.current) {
         cameraRef.current.stop();
@@ -45,6 +47,30 @@ function BraceletDetector() {
     }, 1000);
     return () => clearInterval(interval);
   }, [status]);
+
+  const requestCameraPermission = async () => {
+    try {
+      // Explicitly request camera permission
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { 
+          width: 640, 
+          height: 480 
+        } 
+      });
+      
+      // Permission granted, now initialize MediaPipe
+      setCameraPermission('granted');
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+        initializeMediaPipe();
+      }
+    } catch (err) {
+      console.error('Camera permission error:', err);
+      setCameraError(`Camera access denied: ${err.message}`);
+      setCameraPermission('denied');
+    }
+  };
 
   const logDetection = (detectedStatus) => {
     const timestamp = new Date().toISOString();
@@ -62,32 +88,37 @@ function BraceletDetector() {
   };
 
   const initializeMediaPipe = async () => {
-    const hands = new Hands({
-      locateFile: (file) => {
-        return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
-      }
-    });
-
-    hands.setOptions({
-      maxNumHands: 2,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.5,
-      minTrackingConfidence: 0.5
-    });
-
-    hands.onResults(onResults);
-    handsRef.current = hands;
-
-    if (videoRef.current) {
-      const camera = new Camera(videoRef.current, {
-        onFrame: async () => {
-          await hands.send({ image: videoRef.current });
-        },
-        width: 640,
-        height: 480
+    try {
+      const hands = new Hands({
+        locateFile: (file) => {
+          return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }
       });
-      camera.start();
-      cameraRef.current = camera;
+
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      hands.onResults(onResults);
+      handsRef.current = hands;
+
+      if (videoRef.current) {
+        const camera = new Camera(videoRef.current, {
+          onFrame: async () => {
+            await hands.send({ image: videoRef.current });
+          },
+          width: 640,
+          height: 480
+        });
+        camera.start();
+        cameraRef.current = camera;
+      }
+    } catch (err) {
+      console.error('MediaPipe initialization error:', err);
+      setCameraError(`MediaPipe error: ${err.message}`);
     }
   };
 
@@ -312,17 +343,35 @@ function BraceletDetector() {
       
       {!isMinimized && (
         <div className="detector-content">
-          <video ref={videoRef} style={{ display: 'none' }} />
-          <canvas ref={canvasRef} className="detector-canvas" />
+          {cameraPermission === 'prompt' && (
+            <div className="camera-prompt">
+              <p>📹 Requesting camera access...</p>
+            </div>
+          )}
           
-          <div className="detector-info">
-            <div className="status-display">
-              Status: <span className={`status-${status.toLowerCase()}`}>{status}</span>
+          {cameraPermission === 'denied' && (
+            <div className="camera-error">
+              <p>❌ Camera access denied</p>
+              <p>{cameraError}</p>
+              <button onClick={requestCameraPermission}>Try Again</button>
             </div>
-            <div className="log-count">
-              Logs: {detectionLog.length}
-            </div>
-          </div>
+          )}
+          
+          {cameraPermission === 'granted' && (
+            <>
+              <video ref={videoRef} style={{ display: 'none' }} autoPlay playsInline />
+              <canvas ref={canvasRef} className="detector-canvas" />
+              
+              <div className="detector-info">
+                <div className="status-display">
+                  Status: <span className={`status-${status.toLowerCase()}`}>{status}</span>
+                </div>
+                <div className="log-count">
+                  Logs: {detectionLog.length}
+                </div>
+              </div>
+            </>
+          )}
         </div>
       )}
     </div>
