@@ -63,6 +63,10 @@ function BraceletDetector() {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
+        
+        // Wait for video to actually start streaming
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
         initializeMediaPipe();
       }
     } catch (err) {
