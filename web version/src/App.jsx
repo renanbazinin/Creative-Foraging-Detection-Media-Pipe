@@ -6,7 +6,7 @@ import BraceletDetector from './components/BraceletDetector';
 
 // ===== CONFIGURATION =====
 const ENABLE_DETECTOR = true; // Set to false to disable bracelet detector
-const DETECTOR_IN_NEW_WINDOW = true; // Set to false to show detector in same window
+const DETECTOR_IN_NEW_WINDOW = false; // Show detector inline (no popup)
 // ===== END CONFIGURATION =====
 
 function App() {

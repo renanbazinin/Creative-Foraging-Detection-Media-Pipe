@@ -3,6 +3,10 @@ import { Hands } from '@mediapipe/hands';
 import { Camera } from '@mediapipe/camera_utils';
 import './BraceletDetector.css';
 
+// Debug logging helper
+const DEBUG = true;
+const dbg = (...args) => { if (DEBUG) console.log('[Detector]', ...args); };
+
 // Color detection thresholds (converted from Python HSV to JS)
 const COLOR_THRESHOLDS = {
   red: {
@@ -32,9 +36,11 @@ function BraceletDetector() {
   const lastLogTimeRef = useRef(Date.now());
 
   useEffect(() => {
+    dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform);
     requestCameraPermission();
     return () => {
       if (cameraRef.current) {
+        dbg('Stopping camera on unmount');
         cameraRef.current.stop();
       }
     };
@@ -51,6 +57,7 @@ function BraceletDetector() {
   const requestCameraPermission = async () => {
     try {
       // Explicitly request camera permission
+      dbg('Requesting getUserMedia...');
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           width: { ideal: 640 },
@@ -58,12 +65,16 @@ function BraceletDetector() {
           facingMode: 'user'
         }
       });
-
+      dbg('getUserMedia success. Tracks:', stream.getTracks().map(t => ({ kind: t.kind, label: t.label, settings: t.getSettings?.() }))); 
       setCameraPermission('granted');
 
       if (videoRef.current) {
         const v = videoRef.current;
         v.srcObject = stream;
+
+        // Attach diagnostics
+        const evts = ['loadedmetadata','canplay','play','pause','stalled','suspend','ended','waiting','error','resize'];
+        evts.forEach(e => v.addEventListener(e, () => dbg('video event:', e, { videoWidth: v.videoWidth, videoHeight: v.videoHeight, readyState: v.readyState })));
 
         // Ensure metadata/dimensions are available before initializing
         const waitForReady = () => {
@@ -73,6 +84,7 @@ function BraceletDetector() {
             v.removeEventListener('canplay', waitForReady);
             // Small delay to allow painting
             setTimeout(() => {
+              dbg('Video ready. Initializing MediaPipe...', { w: v.videoWidth, h: v.videoHeight });
               initializeMediaPipe();
             }, 100);
           }
@@ -84,11 +96,12 @@ function BraceletDetector() {
         // Attempt to start playback (required on some browsers)
         try {
           await v.play();
+          dbg('video.play() resolved');
         } catch (playErr) {
           // If autoplay is blocked, user can click anywhere in popup to resume
-          console.warn('Video autoplay blocked; waiting for user gesture to start.', playErr);
+          console.warn('[Detector] Video autoplay blocked; waiting for user gesture to start.', playErr);
           const resume = async () => {
-            try { await v.play(); } catch {}
+            try { await v.play(); dbg('video.play() resumed after user gesture'); } catch (e) { dbg('video.play() retry failed', e); }
             document.removeEventListener('click', resume, true);
           };
           document.addEventListener('click', resume, true);
@@ -156,7 +169,7 @@ function BraceletDetector() {
     const video = videoRef.current;
     if (!canvas || !video) return;
 
-    const ctx = canvas.getContext('2d');
+  const ctx = canvas.getContext('2d');
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
@@ -169,6 +182,7 @@ function BraceletDetector() {
     let detectedStatus = 'None';
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+      dbg('onResults: hands=', results.multiHandLandmarks.length);
       // Find highest hand (smallest y value)
       let highestHand = null;
       let highestY = 1;
@@ -217,6 +231,7 @@ function BraceletDetector() {
         // Get ROI pixels
         const roiData = ctx.getImageData(x1, y1, x2 - x1, y2 - y1);
         detectedStatus = detectBraceletColor(roiData);
+        dbg('Detection result:', detectedStatus, { roi: { x1, y1, w: x2 - x1, h: y2 - y1 } });
       }
     }
 
