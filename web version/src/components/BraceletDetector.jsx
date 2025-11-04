@@ -51,23 +51,48 @@ function BraceletDetector() {
   const requestCameraPermission = async () => {
     try {
       // Explicitly request camera permission
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { 
-          width: 640, 
-          height: 480 
-        } 
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          width: { ideal: 640 },
+          height: { ideal: 480 },
+          facingMode: 'user'
+        }
       });
-      
-      // Permission granted, now initialize MediaPipe
+
       setCameraPermission('granted');
+
       if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        
-        // Wait for video to actually start streaming
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        
-        initializeMediaPipe();
+        const v = videoRef.current;
+        v.srcObject = stream;
+
+        // Ensure metadata/dimensions are available before initializing
+        const waitForReady = () => {
+          // Some browsers report videoWidth=0 until playback begins
+          if (v.videoWidth > 0 && v.videoHeight > 0) {
+            v.removeEventListener('loadedmetadata', waitForReady);
+            v.removeEventListener('canplay', waitForReady);
+            // Small delay to allow painting
+            setTimeout(() => {
+              initializeMediaPipe();
+            }, 100);
+          }
+        };
+
+        v.addEventListener('loadedmetadata', waitForReady);
+        v.addEventListener('canplay', waitForReady);
+
+        // Attempt to start playback (required on some browsers)
+        try {
+          await v.play();
+        } catch (playErr) {
+          // If autoplay is blocked, user can click anywhere in popup to resume
+          console.warn('Video autoplay blocked; waiting for user gesture to start.', playErr);
+          const resume = async () => {
+            try { await v.play(); } catch {}
+            document.removeEventListener('click', resume, true);
+          };
+          document.addEventListener('click', resume, true);
+        }
       }
     } catch (err) {
       console.error('Camera permission error:', err);
@@ -363,7 +388,21 @@ function BraceletDetector() {
           
           {cameraPermission === 'granted' && (
             <>
-              <video ref={videoRef} style={{ display: 'none' }} autoPlay playsInline />
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                // Keep the video renderable so canvases receive frames in all browsers
+                style={{
+                  position: 'absolute',
+                  width: '1px',
+                  height: '1px',
+                  opacity: 0,
+                  pointerEvents: 'none',
+                  left: '-9999px',
+                  top: '-9999px'
+                }}
+              />
               <canvas ref={canvasRef} className="detector-canvas" />
               
               <div className="detector-info">
