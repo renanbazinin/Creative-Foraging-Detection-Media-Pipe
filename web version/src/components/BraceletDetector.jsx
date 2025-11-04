@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Hands } from '@mediapipe/hands';
-import { Camera } from '@mediapipe/camera_utils';
+import { Hands } from '@mediapipe/hands/hands';
+import { Camera } from '@mediapipe/camera_utils/camera_utils';
 import './BraceletDetector.css';
 
 const ENABLE_DETECTOR = true; // Master switch
@@ -196,7 +196,31 @@ function BraceletDetector() {
 
   const initializeMediaPipe = async () => {
     try {
-      const hands = new Hands({
+      // Resolve Hands constructor in both dev and production builds
+      const HandsCtor = await (async () => {
+        try {
+          if (typeof Hands === 'function') return Hands;
+        } catch (_) { /* continue to CDN fallback */ }
+        // Fallback: load from CDN (UMD) and use global window.Hands
+        if (typeof window !== 'undefined' && window.Hands && typeof window.Hands === 'function') {
+          return window.Hands;
+        }
+        await new Promise((resolve, reject) => {
+          const id = 'mp-hands-cdn-script';
+          if (document.getElementById(id)) return resolve();
+          const s = document.createElement('script');
+          s.id = id;
+          s.src = 'https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js';
+          s.async = true;
+          s.onload = () => resolve();
+          s.onerror = (e) => reject(new Error('Failed to load MediaPipe Hands from CDN'));
+          document.head.appendChild(s);
+        });
+        if (window.Hands && typeof window.Hands === 'function') return window.Hands;
+        throw new Error('MediaPipe Hands constructor not available after CDN load');
+      })();
+
+      const hands = new HandsCtor({
         locateFile: (file) => {
           return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
         }
