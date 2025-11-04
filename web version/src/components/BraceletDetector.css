@@ -1,0 +1,107 @@
+.detector-window {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  background-color: rgba(0, 0, 0, 0.95);
+  border: 2px solid #4CAF50;
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0, 255, 0, 0.3);
+  z-index: 9999;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.detector-window.minimized {
+  width: 250px;
+  height: 50px;
+}
+
+.detector-header {
+  background-color: #4CAF50;
+  color: white;
+  padding: 10px 15px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: move;
+  font-weight: bold;
+}
+
+.detector-controls {
+  display: flex;
+  gap: 10px;
+}
+
+.detector-controls button {
+  background-color: transparent;
+  border: 1px solid white;
+  color: white;
+  padding: 5px 10px;
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 14px;
+  transition: all 0.2s;
+}
+
+.detector-controls button:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+  transform: scale(1.1);
+}
+
+.detector-content {
+  padding: 10px;
+}
+
+.detector-canvas {
+  width: 640px;
+  height: 480px;
+  display: block;
+  border: 1px solid #333;
+  border-radius: 5px;
+}
+
+.detector-info {
+  margin-top: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px;
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 5px;
+}
+
+.status-display {
+  font-size: 18px;
+  font-weight: bold;
+  color: white;
+}
+
+.status-red {
+  color: #ff0000;
+}
+
+.status-blue {
+  color: #0000ff;
+}
+
+.status-none {
+  color: #888;
+}
+
+.log-count {
+  color: #aaa;
+  font-size: 14px;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+  .detector-window {
+    bottom: 10px;
+    right: 10px;
+  }
+
+  .detector-canvas {
+    width: 320px;
+    height: 240px;
+  }
+}
