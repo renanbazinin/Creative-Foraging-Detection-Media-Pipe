@@ -13,6 +13,25 @@ function App() {
   const [gameStarted, setGameStarted] = useState(false);
   const [gameConfig, setGameConfig] = useState(null);
   const [detectorWindow, setDetectorWindow] = useState(null);
+  const [currentRoute, setCurrentRoute] = useState(window.location.hash);
+
+  // Listen for hash changes
+  useEffect(() => {
+    const handleHashChange = () => {
+      setCurrentRoute(window.location.hash);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
+
+  // If hash is #/detector, show only the detector
+  if (currentRoute === '#/detector') {
+    return (
+      <div className="App">
+        <BraceletDetector />
+      </div>
+    );
+  }
 
   const handleStartGame = (config) => {
     setGameConfig(config);
@@ -30,9 +49,12 @@ function App() {
       detectorWindow.close();
     }
 
+    // Use hash routing - works on any domain
+    const detectorUrl = window.location.origin + window.location.pathname + '#/detector';
+
     // Open new popup window
     const popup = window.open(
-      window.location.origin + '/detector.html',
+      detectorUrl,
       'BraceletDetector',
       'width=700,height=600,left=100,top=100'
     );
