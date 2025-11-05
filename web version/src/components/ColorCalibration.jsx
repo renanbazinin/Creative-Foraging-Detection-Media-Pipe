@@ -64,6 +64,12 @@ function ColorCalibration() {
   const [valWeight, setValWeight] = useState(() => getLSNumber(LS_KEYS.valWeight, 1.0));
   const [sensitivity, setSensitivity] = useState(() => getLSNumber(LS_KEYS.sensitivity, 0.0));
 
+  // Generic Mode state
+  const [genericMode, setGenericMode] = useState(false);
+  const [genericPhase, setGenericPhase] = useState('idle'); // idle, playerA, switching, playerB, optimizing, complete
+  const [countdown, setCountdown] = useState(5);
+  const genericSamplesRef = useRef({ A: [], B: [] });
+
   useEffect(() => {
     isMounted.current = true;
     // preload previous calibrations
@@ -242,6 +248,215 @@ function ColorCalibration() {
     setMessage('Cleared');
   };
 
+  // Generic Mode - Auto calibration
+  const startGenericMode = () => {
+    setGenericMode(true);
+    setGenericPhase('playerA');
+    setCountdown(5);
+    genericSamplesRef.current = { A: [], B: [] };
+    setMessage('Hold Player A bracelet in center square...');
+  };
+
+  // Handle countdown and phase transitions
+  useEffect(() => {
+    if (!genericMode || genericPhase === 'idle' || genericPhase === 'optimizing' || genericPhase === 'complete') {
+      return;
+    }
+
+    if (countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else {
+      // Countdown reached 0, transition to next phase
+      if (genericPhase === 'playerA') {
+        setGenericPhase('switching');
+        setCountdown(3);
+        setMessage('Switch to Player B... Get ready!');
+      } else if (genericPhase === 'switching') {
+        setGenericPhase('playerB');
+        setCountdown(5);
+        setMessage('Hold Player B bracelet in center square...');
+      } else if (genericPhase === 'playerB') {
+        setGenericPhase('optimizing');
+        optimizeCalibrations();
+      }
+    }
+  }, [genericMode, genericPhase, countdown]);
+
+  // Sample continuously during generic mode (but NOT during switching phase)
+  useEffect(() => {
+    if (!genericMode || genericPhase === 'idle' || genericPhase === 'switching' || genericPhase === 'optimizing' || genericPhase === 'complete') {
+      return;
+    }
+
+    const samplingInterval = setInterval(() => {
+      const sample = computeCenterAverageHSV();
+      if (sample) {
+        if (genericPhase === 'playerA') {
+          genericSamplesRef.current.A.push(sample);
+        } else if (genericPhase === 'playerB') {
+          genericSamplesRef.current.B.push(sample);
+        }
+      }
+    }, 200); // Sample every 200ms
+
+    return () => clearInterval(samplingInterval);
+  }, [genericMode, genericPhase]);
+
+  const optimizeCalibrations = () => {
+    setMessage('Optimizing parameters...');
+    
+    const samplesA = genericSamplesRef.current.A;
+    const samplesB = genericSamplesRef.current.B;
+
+    if (samplesA.length === 0 || samplesB.length === 0) {
+      setMessage('Error: Not enough samples collected!');
+      setGenericMode(false);
+      setGenericPhase('idle');
+      return;
+    }
+
+    // Calculate median HSV for each player (more robust than average)
+    const medianCalibA = calculateMedianHSV(samplesA);
+    const medianCalibB = calculateMedianHSV(samplesB);
+
+    // Calculate the HSV distance between the two players
+    const hDist = Math.min(Math.abs(medianCalibA.h - medianCalibB.h), 
+                           180 - Math.abs(medianCalibA.h - medianCalibB.h));
+    const sDist = Math.abs(medianCalibA.s - medianCalibB.s);
+    const vDist = Math.abs(medianCalibA.v - medianCalibB.v);
+
+    // Auto-optimize weights based on which channel provides best separation
+    // Normalize distances and use inverse as weights
+    const hSep = hDist / 90; // max hue distance is 90 (half of 180)
+    const sSep = sDist / 255;
+    const vSep = vDist / 255;
+
+    // Calculate weights inversely proportional to variance, proportional to separation
+    const varianceA = calculateVariance(samplesA);
+    const varianceB = calculateVariance(samplesB);
+    const avgVariance = {
+      h: (varianceA.h + varianceB.h) / 2,
+      s: (varianceA.s + varianceB.s) / 2,
+      v: (varianceA.v + varianceB.v) / 2
+    };
+
+    // Weight formula: higher separation and lower variance = higher weight
+    const totalSep = hSep + sSep + vSep;
+    const hWeight = totalSep > 0 ? (hSep / totalSep) * (1 / (1 + avgVariance.h / 20)) * 6 : 2.0;
+    const sWeight = totalSep > 0 ? (sSep / totalSep) * (1 / (1 + avgVariance.s / 50)) * 4 : 1.0;
+    const vWeight = totalSep > 0 ? (vSep / totalSep) * (1 / (1 + avgVariance.v / 50)) * 3 : 0.5;
+
+    // Set optimized values
+    setHueWeight(Math.max(0.5, Math.min(6, hWeight)));
+    setSatWeight(Math.max(0.1, Math.min(4, sWeight)));
+    setValWeight(Math.max(0.1, Math.min(3, vWeight)));
+
+    // Auto-adjust sensitivity based on overlap
+    const overlapScore = calculateOverlap(samplesA, samplesB, medianCalibA, medianCalibB);
+    const optimalSensitivity = Math.max(0, Math.min(0.8, overlapScore * 0.5));
+    setSensitivity(optimalSensitivity);
+
+    // Save calibrations
+    localStorage.setItem('calibrationA', JSON.stringify(medianCalibA));
+    localStorage.setItem('calibrationB', JSON.stringify(medianCalibB));
+    setCalibrationA(medianCalibA);
+    setCalibrationB(medianCalibB);
+
+    setGenericPhase('complete');
+    setMessage(`✓ Auto-calibration complete! Collected ${samplesA.length + samplesB.length} samples. Optimized parameters for best separation.`);
+    
+    setTimeout(() => {
+      setGenericMode(false);
+      setGenericPhase('idle');
+    }, 3000);
+  };
+
+  const calculateMedianHSV = (samples) => {
+    // For hue, we need circular median
+    const hValues = samples.map(s => s.h);
+    const sValues = samples.map(s => s.s).sort((a, b) => a - b);
+    const vValues = samples.map(s => s.v).sort((a, b) => a - b);
+
+    // Circular mean for hue (more robust than median for angles)
+    let sumX = 0, sumY = 0;
+    hValues.forEach(h => {
+      const rad = (h * 2) * (Math.PI / 180);
+      sumX += Math.cos(rad);
+      sumY += Math.sin(rad);
+    });
+    const avgHRad = Math.atan2(sumY / hValues.length, sumX / hValues.length);
+    let avgHDeg = avgHRad * (180 / Math.PI);
+    if (avgHDeg < 0) avgHDeg += 360;
+    const medianH = avgHDeg / 2;
+
+    const medianS = sValues[Math.floor(sValues.length / 2)];
+    const medianV = vValues[Math.floor(vValues.length / 2)];
+
+    return { h: medianH, s: medianS, v: medianV };
+  };
+
+  const calculateVariance = (samples) => {
+    const mean = samples.reduce((acc, s) => ({
+      h: acc.h + s.h,
+      s: acc.s + s.s,
+      v: acc.v + s.v
+    }), { h: 0, s: 0, v: 0 });
+    
+    mean.h /= samples.length;
+    mean.s /= samples.length;
+    mean.v /= samples.length;
+
+    const variance = samples.reduce((acc, s) => ({
+      h: acc.h + Math.pow(s.h - mean.h, 2),
+      s: acc.s + Math.pow(s.s - mean.s, 2),
+      v: acc.v + Math.pow(s.v - mean.v, 2)
+    }), { h: 0, s: 0, v: 0 });
+
+    return {
+      h: variance.h / samples.length,
+      s: variance.s / samples.length,
+      v: variance.v / samples.length
+    };
+  };
+
+  const calculateOverlap = (samplesA, samplesB, calibA, calibB) => {
+    // Calculate how much the two distributions overlap
+    // Higher overlap = need higher sensitivity threshold
+    let overlapCount = 0;
+    const totalComparisons = Math.min(samplesA.length, samplesB.length) * 2;
+
+    samplesA.forEach(sampleA => {
+      const distToA = hsvDistance(sampleA, calibA);
+      const distToB = hsvDistance(sampleA, calibB);
+      if (distToB < distToA * 1.5) overlapCount++; // If closer to wrong calibration
+    });
+
+    samplesB.forEach(sampleB => {
+      const distToA = hsvDistance(sampleB, calibA);
+      const distToB = hsvDistance(sampleB, calibB);
+      if (distToA < distToB * 1.5) overlapCount++;
+    });
+
+    return overlapCount / totalComparisons;
+  };
+
+  const hsvDistance = (sample, calib) => {
+    const dh = Math.min(Math.abs(sample.h - calib.h), 180 - Math.abs(sample.h - calib.h));
+    const ds = Math.abs(sample.s - calib.s);
+    const dv = Math.abs(sample.v - calib.v);
+    return Math.sqrt(dh * dh + ds * ds + dv * dv);
+  };
+
+  const cancelGenericMode = () => {
+    setGenericMode(false);
+    setGenericPhase('idle');
+    setCountdown(5);
+    setMessage('Generic mode cancelled');
+  };
+
   return (
     <div className="calib-root">
       <div className="calib-header">
@@ -258,7 +473,16 @@ function ColorCalibration() {
         <div>
           <div className="calib-block" style={{ marginBottom: 12 }}>
             <div className="label">Live Preview</div>
-            <div className="value" style={{ marginBottom: 8 }}>Place the bracelet color inside the center square to sample accurate HSV.</div>
+            <div className="value" style={{ marginBottom: 8 }}>
+              {genericMode 
+                ? `Generic Mode Active: ${
+                    genericPhase === 'playerA' ? 'Player A' : 
+                    genericPhase === 'switching' ? 'Switching...' :
+                    genericPhase === 'playerB' ? 'Player B' : 
+                    'Processing...'
+                  }`
+                : 'Place the bracelet color inside the center square to sample accurate HSV.'}
+            </div>
             <div className="calib-video-wrap">
               <video
                 ref={videoRef}
@@ -268,12 +492,74 @@ function ColorCalibration() {
                 muted
               />
               {/* center square overlay */}
-              <div className="calib-center-box" style={{ width: roiSize, height: roiSize }} />
+              <div 
+                className="calib-center-box" 
+                style={{ 
+                  width: roiSize, 
+                  height: roiSize,
+                  borderColor: genericMode ? '#22d3ee' : '#22d3ee',
+                  borderWidth: genericMode ? '4px' : '3px',
+                  boxShadow: genericMode ? '0 0 20px rgba(34, 211, 238, 0.6)' : '0 0 0 2000px rgba(0,0,0,0.35)'
+                }} 
+              />
+              {genericMode && countdown > 0 && (
+                <div style={{
+                  position: 'absolute',
+                  top: '50%',
+                  left: '50%',
+                  transform: 'translate(-50%, -50%)',
+                  fontSize: '72px',
+                  fontWeight: 'bold',
+                  color: '#22d3ee',
+                  textShadow: '0 0 20px rgba(34, 211, 238, 0.8), 0 0 40px rgba(34, 211, 238, 0.5)',
+                  pointerEvents: 'none',
+                  zIndex: 10
+                }}>
+                  {countdown}
+                </div>
+              )}
             </div>
           </div>
         </div>
 
         <div className="calib-controls">
+        <div className="calib-block" style={{ background: genericMode ? '#1a2332' : '#0f172a', border: genericMode ? '2px solid #22d3ee' : '1px solid #1f2937' }}>
+          <div className="label">🤖 Generic Mode (Auto-Calibration)</div>
+          <div className="value" style={{ fontSize: 13, marginBottom: 8 }}>
+            Automatically calibrate both players with optimized parameters. Hold each bracelet in the center square for 5 seconds.
+          </div>
+          {!genericMode ? (
+            <div className="buttons">
+              <button 
+                onClick={startGenericMode} 
+                disabled={!ready}
+                style={{ background: '#22d3ee', color: '#000', fontWeight: 'bold' }}
+              >
+                Start Generic Mode
+              </button>
+            </div>
+          ) : (
+            <div style={{ marginTop: 8 }}>
+              <div style={{ fontSize: 16, fontWeight: 'bold', color: '#22d3ee', marginBottom: 8 }}>
+                {genericPhase === 'playerA' && `Player A: Hold bracelet steady... ${countdown}s`}
+                {genericPhase === 'switching' && `Switch hands! Get Player B ready... ${countdown}s`}
+                {genericPhase === 'playerB' && `Player B: Hold bracelet steady... ${countdown}s`}
+                {genericPhase === 'optimizing' && 'Optimizing parameters...'}
+                {genericPhase === 'complete' && '✓ Complete!'}
+              </div>
+              <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>
+                {genericPhase === 'playerA' && `Samples collected: ${genericSamplesRef.current.A.length}`}
+                {genericPhase === 'switching' && `Player A: ${genericSamplesRef.current.A.length} samples collected`}
+                {genericPhase === 'playerB' && `Samples collected: ${genericSamplesRef.current.B.length}`}
+              </div>
+              {genericPhase !== 'complete' && (
+                <button onClick={cancelGenericMode} style={{ background: '#ef4444' }}>
+                  Cancel
+                </button>
+              )}
+            </div>
+          )}
+        </div>
         <div className="calib-block">
           <div className="label">Detector Settings</div>
           <div className="value" style={{ display: 'grid', gap: 8 }}>
