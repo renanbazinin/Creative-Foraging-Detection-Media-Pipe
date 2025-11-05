@@ -6,6 +6,29 @@ const dbg = (...args) => { if (DEBUG) console.log('[Calibrate]', ...args); };
 
 const ROI_SIZE = 100; // px
 
+// Convert OpenCV-style HSV (H:0-180, S:0-255, V:0-255) to CSS rgb()
+const hsvToCssColor = (h, s, v) => {
+  const H = (h || 0) * 2; // to 0-360
+  const S = (s || 0) / 255;
+  const V = (v || 0) / 255;
+  const C = V * S;
+  const X = C * (1 - Math.abs(((H / 60) % 2) - 1));
+  const m = V - C;
+  let r1 = 0, g1 = 0, b1 = 0;
+  if (H >= 0 && H < 60)      { r1 = C; g1 = X; b1 = 0; }
+  else if (H < 120)          { r1 = X; g1 = C; b1 = 0; }
+  else if (H < 180)          { r1 = 0; g1 = C; b1 = X; }
+  else if (H < 240)          { r1 = 0; g1 = X; b1 = C; }
+  else if (H < 300)          { r1 = X; g1 = 0; b1 = C; }
+  else                       { r1 = C; g1 = 0; b1 = X; }
+  const r = Math.round((r1 + m) * 255);
+  const g = Math.round((g1 + m) * 255);
+  const b = Math.round((b1 + m) * 255);
+  return `rgb(${r}, ${g}, ${b})`;
+};
+
+const calibToCss = (calib) => calib ? hsvToCssColor(calib.h, calib.s, calib.v) : '#444';
+
 function ColorCalibration() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null); // offscreen canvas for sampling
@@ -186,7 +209,13 @@ function ColorCalibration() {
       <div className="calib-controls">
         <div className="calib-block">
           <div className="label">Player A</div>
-          <div className="value">{calibrationA ? `h${calibrationA.h.toFixed(0)} s${calibrationA.s.toFixed(0)} v${calibrationA.v.toFixed(0)}` : '—'}</div>
+          <div className="value" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              title="Player A color"
+              style={{ width: 16, height: 16, borderRadius: 3, border: '1px solid #666', display: 'inline-block', background: calibToCss(calibrationA) }}
+            />
+            <span>{calibrationA ? `h${calibrationA.h.toFixed(0)} s${calibrationA.s.toFixed(0)} v${calibrationA.v.toFixed(0)}` : '—'}</span>
+          </div>
           <div className="buttons">
             <button onClick={() => saveCalibration('A')} disabled={!ready}>Save A</button>
             <button onClick={() => clearCalibration('A')}>Clear A</button>
@@ -194,7 +223,13 @@ function ColorCalibration() {
         </div>
         <div className="calib-block">
           <div className="label">Player B</div>
-          <div className="value">{calibrationB ? `h${calibrationB.h.toFixed(0)} s${calibrationB.s.toFixed(0)} v${calibrationB.v.toFixed(0)}` : '—'}</div>
+          <div className="value" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span
+              title="Player B color"
+              style={{ width: 16, height: 16, borderRadius: 3, border: '1px solid #666', display: 'inline-block', background: calibToCss(calibrationB) }}
+            />
+            <span>{calibrationB ? `h${calibrationB.h.toFixed(0)} s${calibrationB.s.toFixed(0)} v${calibrationB.v.toFixed(0)}` : '—'}</span>
+          </div>
           <div className="buttons">
             <button onClick={() => saveCalibration('B')} disabled={!ready}>Save B</button>
             <button onClick={() => clearCalibration('B')}>Clear B</button>
