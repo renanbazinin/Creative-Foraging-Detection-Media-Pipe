@@ -4,7 +4,14 @@ import './ColorCalibration.css';
 const DEBUG = true;
 const dbg = (...args) => { if (DEBUG) console.log('[Calibrate]', ...args); };
 
-const ROI_SIZE = 100; // px
+// Detector settings keys (persisted in localStorage)
+const LS_KEYS = {
+  roiSize: 'detectorRoiSize',
+  hueWeight: 'detectorHueWeight',
+  satWeight: 'detectorSatWeight',
+  valWeight: 'detectorValWeight',
+  sensitivity: 'detectorSensitivity',
+};
 
 // Convert OpenCV-style HSV (H:0-180, S:0-255, V:0-255) to CSS rgb()
 const hsvToCssColor = (h, s, v) => {
@@ -40,6 +47,22 @@ function ColorCalibration() {
   const [message, setMessage] = useState('');
   const [calibrationA, setCalibrationA] = useState(null);
   const [calibrationB, setCalibrationB] = useState(null);
+  // Helper to safely read numbers from localStorage with proper defaults
+  const getLSNumber = (key, fallback) => {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    const v = parseFloat(raw);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  // Detector tuning settings (persisted)
+  const [roiSize, setRoiSize] = useState(() => {
+    const v = getLSNumber(LS_KEYS.roiSize, 44);
+    return v > 10 ? v : 44; // default 44px
+  });
+  const [hueWeight, setHueWeight] = useState(() => getLSNumber(LS_KEYS.hueWeight, 4.0));
+  const [satWeight, setSatWeight] = useState(() => getLSNumber(LS_KEYS.satWeight, 2.0));
+  const [valWeight, setValWeight] = useState(() => getLSNumber(LS_KEYS.valWeight, 1.0));
+  const [sensitivity, setSensitivity] = useState(() => getLSNumber(LS_KEYS.sensitivity, 0.0));
 
   useEffect(() => {
     isMounted.current = true;
@@ -66,6 +89,23 @@ function ColorCalibration() {
       if (v) v.srcObject = null;
     };
   }, []);
+
+  // Persist settings when they change
+  useEffect(() => {
+    localStorage.setItem(LS_KEYS.roiSize, String(roiSize));
+  }, [roiSize]);
+  useEffect(() => {
+    localStorage.setItem(LS_KEYS.hueWeight, String(hueWeight));
+  }, [hueWeight]);
+  useEffect(() => {
+    localStorage.setItem(LS_KEYS.satWeight, String(satWeight));
+  }, [satWeight]);
+  useEffect(() => {
+    localStorage.setItem(LS_KEYS.valWeight, String(valWeight));
+  }, [valWeight]);
+  useEffect(() => {
+    localStorage.setItem(LS_KEYS.sensitivity, String(sensitivity));
+  }, [sensitivity]);
 
   const startCamera = useCallback(async () => {
     const video = videoRef.current;
@@ -142,17 +182,39 @@ function ColorCalibration() {
     const ctx = canvas.getContext('2d');
     ctx.drawImage(video, 0, 0, vw, vh);
 
-    const x = Math.floor(vw / 2 - ROI_SIZE / 2);
-    const y = Math.floor(vh / 2 - ROI_SIZE / 2);
-    const roi = ctx.getImageData(x, y, ROI_SIZE, ROI_SIZE);
+    const boxSize = Math.max(10, Math.min(300, Math.floor(roiSize)));
+    const x = Math.floor(vw / 2 - boxSize / 2);
+    const y = Math.floor(vh / 2 - boxSize / 2);
+    const roi = ctx.getImageData(x, y, boxSize, boxSize);
     const data = roi.data;
-    let sumH = 0, sumS = 0, sumV = 0, n = 0;
+
+    let sumX = 0; // for Hue unit vector x
+    let sumY = 0; // for Hue unit vector y
+    let sumS = 0;
+    let sumV = 0;
+    let n = 0;
     for (let i = 0; i < data.length; i += 4) {
       const [h, s, v] = rgbToHsv(data[i], data[i+1], data[i+2]);
-      sumH += h; sumS += s; sumV += v; n++;
+      // Convert OpenCV H (0..180) -> degrees (0..360) -> radians (0..2π)
+      const hRad = (h * 2) * (Math.PI / 180);
+      sumX += Math.cos(hRad);
+      sumY += Math.sin(hRad);
+      sumS += s;
+      sumV += v;
+      n++;
     }
     if (n === 0) return null;
-    return { h: sumH / n, s: sumS / n, v: sumV / n };
+
+    const avgS = sumS / n;
+    const avgV = sumV / n;
+    const avgX = sumX / n;
+    const avgY = sumY / n;
+    const avgHRad = Math.atan2(avgY, avgX);
+    let avgHDeg = avgHRad * (180 / Math.PI);
+    if (avgHDeg < 0) avgHDeg += 360;
+    const avgH = avgHDeg / 2; // back to OpenCV 0..180 scale
+
+    return { h: avgH, s: avgS, v: avgV };
   };
 
   const saveCalibration = (which) => {
@@ -192,21 +254,64 @@ function ColorCalibration() {
 
       {message && <div className="calib-message">{message}</div>}
 
-      {/* Sensitivity removed: binary decision handled in detector */}
+      <div className="calib-content">
+        <div>
+          <div className="calib-block" style={{ marginBottom: 12 }}>
+            <div className="label">Live Preview</div>
+            <div className="value" style={{ marginBottom: 8 }}>Place the bracelet color inside the center square to sample accurate HSV.</div>
+            <div className="calib-video-wrap">
+              <video
+                ref={videoRef}
+                className="calib-video"
+                autoPlay
+                playsInline
+                muted
+              />
+              {/* center square overlay */}
+              <div className="calib-center-box" style={{ width: roiSize, height: roiSize }} />
+            </div>
+          </div>
+        </div>
 
-      <div className="calib-video-wrap">
-        <video
-          ref={videoRef}
-          className="calib-video"
-          autoPlay
-          playsInline
-          muted
-        />
-        {/* center square overlay */}
-        <div className="calib-center-box" style={{ width: ROI_SIZE, height: ROI_SIZE }} />
-      </div>
-
-      <div className="calib-controls">
+        <div className="calib-controls">
+        <div className="calib-block">
+          <div className="label">Detector Settings</div>
+          <div className="value" style={{ display: 'grid', gap: 8 }}>
+            <label style={{ display: 'grid', gridTemplateColumns: '180px 1fr 60px', alignItems: 'center', gap: 8 }}>
+              <span>Detection square size</span>
+              <input type="range" min="20" max="240" step="2" value={roiSize}
+                onChange={(e) => setRoiSize(Number(e.target.value))} />
+              <span style={{ textAlign: 'right' }}>{roiSize}px</span>
+            </label>
+            <label style={{ display: 'grid', gridTemplateColumns: '180px 1fr 60px', alignItems: 'center', gap: 8 }}>
+              <span>Hue weight</span>
+              <input type="range" min="0" max="6" step="0.1" value={hueWeight}
+                onChange={(e) => setHueWeight(Number(e.target.value))} />
+              <span style={{ textAlign: 'right' }}>{hueWeight.toFixed(1)}</span>
+            </label>
+            <label style={{ display: 'grid', gridTemplateColumns: '180px 1fr 60px', alignItems: 'center', gap: 8 }}>
+              <span>Saturation weight</span>
+              <input type="range" min="0" max="4" step="0.1" value={satWeight}
+                onChange={(e) => setSatWeight(Number(e.target.value))} />
+              <span style={{ textAlign: 'right' }}>{satWeight.toFixed(1)}</span>
+            </label>
+            <label style={{ display: 'grid', gridTemplateColumns: '180px 1fr 60px', alignItems: 'center', gap: 8 }}>
+              <span>Value weight</span>
+              <input type="range" min="0" max="3" step="0.1" value={valWeight}
+                onChange={(e) => setValWeight(Number(e.target.value))} />
+              <span style={{ textAlign: 'right' }}>{valWeight.toFixed(1)}</span>
+            </label>
+            <label style={{ display: 'grid', gridTemplateColumns: '180px 1fr 60px', alignItems: 'center', gap: 8 }}>
+              <span>Sensitivity (lower = more sensitive)</span>
+              <input type="range" min="0" max="1" step="0.05" value={sensitivity}
+                onChange={(e) => setSensitivity(Number(e.target.value))} />
+              <span style={{ textAlign: 'right' }}>{(sensitivity*100).toFixed(0)}%</span>
+            </label>
+            <div style={{ fontSize: 12, opacity: 0.7 }}>
+              These settings are saved to local storage and used by the detector (wrist ROI, A/B decision weights, and sensitivity gate).
+            </div>
+          </div>
+        </div>
         <div className="calib-block">
           <div className="label">Player A</div>
           <div className="value" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -234,6 +339,7 @@ function ColorCalibration() {
             <button onClick={() => saveCalibration('B')} disabled={!ready}>Save B</button>
             <button onClick={() => clearCalibration('B')}>Clear B</button>
           </div>
+        </div>
         </div>
       </div>
 

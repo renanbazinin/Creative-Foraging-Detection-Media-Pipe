@@ -11,6 +11,13 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  position: sticky;
+  top: 0;
+  background: rgba(11, 15, 23, 0.9);
+  backdrop-filter: saturate(120%) blur(4px);
+  padding-bottom: 8px;
+  z-index: 5;
+  border-bottom: 1px solid #111827;
 }
 
 .calib-actions button {
@@ -25,13 +32,28 @@
   border-radius: 6px;
 }
 
+.calib-content {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+@media (min-width: 900px) {
+  .calib-content {
+    grid-template-columns: 1.25fr 1fr;
+  }
+}
+
 .calib-video-wrap {
   position: relative;
-  width: 800px;
-  max-width: 100%;
+  width: 100%;
   margin: 12px 0;
-  border: 1px solid #111827;
   background: #000;
+  border: 1px solid #111827;
+  border-radius: 10px;
+  overflow: hidden;
+  aspect-ratio: 4 / 3;
 }
 
 .calib-video {
@@ -52,7 +74,7 @@
 
 .calib-controls {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: 1fr;
   gap: 12px;
 }
 
@@ -61,6 +83,26 @@
   border: 1px solid #1f2937;
   border-radius: 8px;
   padding: 12px;
+}
+
+.calib-block .buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.calib-actions button,
+.calib-block .buttons button {
+  background: #111827;
+  color: #e5e7eb;
+  border: 1px solid #1f2937;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.calib-actions button:hover,
+.calib-block .buttons button:hover {
+  background: #0b1220;
 }
 
 .calib-block .label {

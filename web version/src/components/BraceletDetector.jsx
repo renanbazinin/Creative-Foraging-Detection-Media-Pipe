@@ -21,8 +21,16 @@ const COLOR_THRESHOLDS = {
     lower: [100, 150, 70],
     upper: [130, 255, 255]
   },
-  pixelThreshold: 200,
-  roiSize: 60
+  pixelThreshold: 200
+};
+
+// LocalStorage keys for detector tuning
+const LS_KEYS = {
+  roiSize: 'detectorRoiSize',
+  hueWeight: 'detectorHueWeight',
+  satWeight: 'detectorSatWeight',
+  valWeight: 'detectorValWeight',
+  sensitivity: 'detectorSensitivity',
 };
 
 function BraceletDetector() {
@@ -39,6 +47,22 @@ function BraceletDetector() {
   // Refs to avoid stale closures inside MediaPipe callbacks
   const calibrationARef = useRef(null);
   const calibrationBRef = useRef(null);
+  // Helper to safely read numbers from localStorage with defaults
+  const getLSNumber = (key, fallback) => {
+    const raw = localStorage.getItem(key);
+    if (raw === null) return fallback;
+    const v = parseFloat(raw);
+    return Number.isFinite(v) ? v : fallback;
+  };
+  // Detector tuning (ROI size and HSV weights)
+  const [detectorSettings, setDetectorSettings] = useState(() => ({
+    roiSize: (() => { const v = getLSNumber(LS_KEYS.roiSize, 44); return v > 10 ? v : 44; })(),
+    hueWeight: getLSNumber(LS_KEYS.hueWeight, 4.0),
+    satWeight: getLSNumber(LS_KEYS.satWeight, 2.0),
+    valWeight: getLSNumber(LS_KEYS.valWeight, 1.0),
+    sensitivity: getLSNumber(LS_KEYS.sensitivity, 0.0),
+  }));
+  const detectorSettingsRef = useRef(detectorSettings);
 
   const streamRef = useRef(null);
   const isMounted = useRef(false); // Ref to track mount status
@@ -193,6 +217,15 @@ function BraceletDetector() {
       if (['calibrationA', 'calibrationB'].includes(ev.key)) {
         loadCalibs();
       }
+      if ([LS_KEYS.roiSize, LS_KEYS.hueWeight, LS_KEYS.satWeight, LS_KEYS.valWeight, LS_KEYS.sensitivity].includes(ev.key)) {
+        setDetectorSettings(prev => ({
+          roiSize: (() => { const v = getLSNumber(LS_KEYS.roiSize, prev?.roiSize ?? 44); return v > 10 ? v : (prev?.roiSize ?? 44); })(),
+          hueWeight: getLSNumber(LS_KEYS.hueWeight, prev?.hueWeight ?? 4.0),
+          satWeight: getLSNumber(LS_KEYS.satWeight, prev?.satWeight ?? 2.0),
+          valWeight: getLSNumber(LS_KEYS.valWeight, prev?.valWeight ?? 1.0),
+          sensitivity: getLSNumber(LS_KEYS.sensitivity, prev?.sensitivity ?? 0.0),
+        }));
+      }
     };
     window.addEventListener('storage', onStorage);
 
@@ -229,6 +262,7 @@ function BraceletDetector() {
   // Keep refs in sync with state so onResults sees latest values
   useEffect(() => { calibrationARef.current = calibrationA; }, [calibrationA]);
   useEffect(() => { calibrationBRef.current = calibrationB; }, [calibrationB]);
+  useEffect(() => { detectorSettingsRef.current = detectorSettings; }, [detectorSettings]);
 
   // Log every second
   useEffect(() => {
@@ -391,8 +425,8 @@ function BraceletDetector() {
         ctx.font = '16px Arial';
         ctx.fillText('SELECTED', wristX - 40, wristY - 15);
 
-        // Extract ROI for color detection
-        const roiSize = COLOR_THRESHOLDS.roiSize;
+  // Extract ROI for color detection
+  const roiSize = Math.max(10, Math.min(300, Math.floor(detectorSettingsRef.current?.roiSize || 60)));
         const halfSize = roiSize / 2;
         const x1 = Math.max(0, wristX - halfSize);
         const y1 = Math.max(0, wristY - halfSize);
@@ -509,6 +543,10 @@ function BraceletDetector() {
     if (calibA && calibB) {
       let votesA = 0;
       let votesB = 0;
+      const wH = detectorSettingsRef.current?.hueWeight ?? 2.0;
+      const wS = detectorSettingsRef.current?.satWeight ?? 0.5;
+      const wV = detectorSettingsRef.current?.valWeight ?? 0.5;
+      const sensitivity = detectorSettingsRef.current?.sensitivity ?? 0.0; // 0..1, lower = more sensitive
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
@@ -521,12 +559,20 @@ function BraceletDetector() {
         const dsB = Math.abs(s - calibB.s);
         const dvA = Math.abs(v - calibA.v);
         const dvB = Math.abs(v - calibB.v);
-        // Simple weighted L1 distance (weights can be tuned)
-        const distA = dhA * 2 + dsA * 0.5 + dvA * 0.5;
-        const distB = dhB * 2 + dsB * 0.5 + dvB * 0.5;
+        // Simple weighted L1 distance (weights adjustable in settings)
+        const distA = dhA * wH + dsA * wS + dvA * wV;
+        const distB = dhB * wH + dsB * wS + dvB * wV;
         if (distA <= distB) votesA++; else votesB++;
       }
-      return votesA >= votesB ? 'Player A' : 'Player B';
+      const total = votesA + votesB;
+      if (total === 0) return 'None';
+      const winner = votesA >= votesB ? 'Player A' : 'Player B';
+      const winnerVotes = Math.max(votesA, votesB);
+      const frac = winnerVotes / total; // 0.5..1
+      // required fraction goes from 0.5 (sensitivity=0) to 1.0 (sensitivity=1)
+      const requiredFrac = 0.5 + 0.5 * Math.max(0, Math.min(1, sensitivity));
+      if (frac >= requiredFrac) return winner;
+      return 'None';
     }
 
     // No calibrations saved: fallback to red vs blue and map to A/B
