@@ -1,3 +1,8 @@
+## 🌐 Live Demo
+
+Visit the [GitHub Pages deployment](https://renanbazinin.github.io/Creative-Foraging-Detection-Media-Pipe/) to try the web version.
+
+
 # Creative Foraging Detection with MediaPipe
 
 A creative block arrangement game with real-time hand tracking and bracelet color detection using MediaPipe.
