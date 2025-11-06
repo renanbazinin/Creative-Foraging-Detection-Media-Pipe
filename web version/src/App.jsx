@@ -4,6 +4,7 @@ import StartDialog from './components/StartDialog';
 import GameCanvas from './components/GameCanvas';
 import BraceletDetector from './components/BraceletDetector';
 import ColorCalibration from './components/ColorCalibration';
+import Tests from './components/Tests';
 
 // ===== CONFIGURATION =====
 const ENABLE_DETECTOR = true; // Set to false to disable bracelet detector
@@ -69,6 +70,8 @@ function App() {
     body = <BraceletDetector />;
   } else if (currentRoute === '#/calibrate') {
     body = <ColorCalibration />;
+  } else if (currentRoute === '#/tests') {
+    body = <Tests />;
   } else {
     body = (!gameStarted ? (
       <StartDialog onStart={handleStartGame} />

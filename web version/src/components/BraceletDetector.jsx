@@ -532,52 +532,62 @@ function BraceletDetector() {
     return { redCount, blueCount };
   };
 
-  // Binary decision using nearest HSV color (A vs B). If only one calibration exists, choose it.
+  // Presence based decision: declare A or B only if enough pixels are closer to that calibration.
+  // Adds a minimum percentage threshold; ignores very low saturation pixels as likely background/skin.
   const decideBinaryAorB = (imageData, calibA, calibB) => {
     const data = imageData.data;
-    // If only one calibration exists, choose that label
+    // If only one calibration exists, choose that label immediately
     if (calibA && !calibB) return 'Player A';
     if (calibB && !calibA) return 'Player B';
 
-    // If both exist, majority vote based on nearest HSV distance
+    const MIN_PERCENT = 0.12; // Require at least 12% of ROI pixels to match
+    const MIN_SAT = 25;       // Ignore pixels with saturation below this (likely skin / noise)
+    const MIN_VAL = 30;       // Ignore very dark pixels
+    const wH = detectorSettingsRef.current?.hueWeight ?? 2.0;
+    const wS = detectorSettingsRef.current?.satWeight ?? 0.5;
+    const wV = detectorSettingsRef.current?.valWeight ?? 0.5;
+    const sensitivity = detectorSettingsRef.current?.sensitivity ?? 0.0; // 0..1 (used to tighten threshold)
+
     if (calibA && calibB) {
       let votesA = 0;
       let votesB = 0;
-      const wH = detectorSettingsRef.current?.hueWeight ?? 2.0;
-      const wS = detectorSettingsRef.current?.satWeight ?? 0.5;
-      const wV = detectorSettingsRef.current?.valWeight ?? 0.5;
-      const sensitivity = detectorSettingsRef.current?.sensitivity ?? 0.0; // 0..1, lower = more sensitive
+      let considered = 0;
       for (let i = 0; i < data.length; i += 4) {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
         const [h, s, v] = rgbToHsv(r, g, b);
-        // Circular hue distance (0..180 domain)
+        if (s < MIN_SAT || v < MIN_VAL) continue; // skip dull/dark pixels
         const dhA = Math.min(Math.abs(h - calibA.h), 180 - Math.abs(h - calibA.h));
         const dhB = Math.min(Math.abs(h - calibB.h), 180 - Math.abs(h - calibB.h));
         const dsA = Math.abs(s - calibA.s);
         const dsB = Math.abs(s - calibB.s);
         const dvA = Math.abs(v - calibA.v);
         const dvB = Math.abs(v - calibB.v);
-        // Simple weighted L1 distance (weights adjustable in settings)
         const distA = dhA * wH + dsA * wS + dvA * wV;
         const distB = dhB * wH + dsB * wS + dvB * wV;
         if (distA <= distB) votesA++; else votesB++;
+        considered++;
       }
-      const total = votesA + votesB;
-      if (total === 0) return 'None';
-      const winner = votesA >= votesB ? 'Player A' : 'Player B';
-      const winnerVotes = Math.max(votesA, votesB);
-      const frac = winnerVotes / total; // 0.5..1
-      // required fraction goes from 0.5 (sensitivity=0) to 1.0 (sensitivity=1)
-      const requiredFrac = 0.5 + 0.5 * Math.max(0, Math.min(1, sensitivity));
-      if (frac >= requiredFrac) return winner;
+      if (considered === 0) return 'None';
+      const percentA = votesA / considered;
+      const percentB = votesB / considered;
+      // Increase required percent slightly with sensitivity (0 -> MIN_PERCENT, 1 -> MIN_PERCENT + 10%)
+      const required = MIN_PERCENT * (1 + 0.8 * Math.max(0, Math.min(1, sensitivity)));
+      if (percentA >= required && percentA >= percentB) return 'Player A';
+      if (percentB >= required && percentB > percentA) return 'Player B';
       return 'None';
     }
 
-    // No calibrations saved: fallback to red vs blue and map to A/B
+    // No calibrations: fallback to raw red vs blue counts.
     const { redCount, blueCount } = detectBraceletColor(imageData);
-    return redCount >= blueCount ? 'Player A' : 'Player B';
+    const total = redCount + blueCount;
+    if (total === 0) return 'None';
+    const fracRed = redCount / total;
+    const fracBlue = blueCount / total;
+    if (fracRed >= 0.15 && fracRed >= fracBlue) return 'Player A';
+    if (fracBlue >= 0.15 && fracBlue > fracRed) return 'Player B';
+    return 'None';
   };
 
   // Calibration save/clear handled on the dedicated calibration page
