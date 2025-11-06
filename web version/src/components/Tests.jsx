@@ -61,6 +61,17 @@ function BraceletDetectorTest() {
   const debugCounterRef = useRef(0);
   // Live belief metrics for UI
   const statsRef = useRef({ percentA: 0, percentB: 0, wshareA: null, wshareB: null, considered: 0 });
+  // Background model reference (full-frame capture)
+  const bgRef = useRef(null);
+  // Extra sandbox-only settings (static for now; could expose UI sliders later)
+  const [testSettings] = useState({
+    bgDiffThreshold: 30,          // Sum absolute RGB difference required to treat pixel as foreground
+    minCompArea: 25,              // Minimum connected component area (pixels) after morph filtering
+    maxCompArea: 2500,            // Maximum connected component area (ignore huge blobs)
+    globalRoi: { x: 0.0, y: 0.0, w: 1.0, h: 1.0 }, // Fractional ROI limiting where wrist center must lie
+    morphIterations: 1,           // Iterations of morphological opening
+  });
+  const testSettingsRef = useRef(testSettings);
 
   const streamRef = useRef(null);
   const isMounted = useRef(false);
@@ -178,6 +189,7 @@ function BraceletDetectorTest() {
   useEffect(() => { calibrationARef.current = calibrationA; }, [calibrationA]);
   useEffect(() => { calibrationBRef.current = calibrationB; }, [calibrationB]);
   useEffect(() => { detectorSettingsRef.current = detectorSettings; }, [detectorSettings]);
+  useEffect(() => { testSettingsRef.current = testSettings; }, [testSettings]);
 
   const initializeMediaPipe = async () => {
     try {
@@ -264,6 +276,21 @@ function BraceletDetectorTest() {
     ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
     ctx.restore();
 
+    // Draw global ROI (if not full frame)
+    const { globalRoi } = testSettingsRef.current;
+    if (globalRoi.w < 0.999 || globalRoi.h < 0.999 || globalRoi.x > 0 || globalRoi.y > 0) {
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,165,0,0.6)';
+      ctx.setLineDash([6,4]);
+      const gx = globalRoi.x * canvas.width;
+      const gy = globalRoi.y * canvas.height;
+      const gw = globalRoi.w * canvas.width;
+      const gh = globalRoi.h * canvas.height;
+      ctx.lineWidth = 2;
+      ctx.strokeRect(gx, gy, gw, gh);
+      ctx.restore();
+    }
+
     let detectedStatus = 'None';
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
@@ -284,6 +311,20 @@ function BraceletDetectorTest() {
         const wristX = (1 - wrist.x) * canvas.width;
         const wristY = wrist.y * canvas.height;
 
+        // Enforce global ROI: if wrist center outside, skip detection
+        const { globalRoi } = testSettingsRef.current;
+        const gx = globalRoi.x * canvas.width;
+        const gy = globalRoi.y * canvas.height;
+        const gw = globalRoi.w * canvas.width;
+        const gh = globalRoi.h * canvas.height;
+        if (!(wristX >= gx && wristX <= gx + gw && wristY >= gy && wristY <= gy + gh)) {
+          setStatus('None');
+          ctx.fillStyle = 'orange';
+          ctx.font = '14px Arial';
+          ctx.fillText('WRIST OUTSIDE ROI', 10, 68);
+          return;
+        }
+
         ctx.fillStyle = 'orange';
         ctx.beginPath(); ctx.arc(wristX, wristY, 10, 0, 2 * Math.PI); ctx.fill();
         ctx.fillStyle = 'orange'; ctx.font = '16px Arial'; ctx.fillText('SELECTED (TEST)', wristX - 70, wristY - 15);
@@ -300,7 +341,7 @@ function BraceletDetectorTest() {
         const roiData = ctx.getImageData(x1, y1, x2 - x1, y2 - y1);
         const calibA = calibrationARef.current;
         const calibB = calibrationBRef.current;
-        detectedStatus = decideBinaryAorB(roiData, calibA, calibB);
+        detectedStatus = decideBinaryAorB(roiData, calibA, calibB, x1, y1);
       }
     }
 
@@ -342,7 +383,79 @@ function BraceletDetectorTest() {
     });
   };
 
-const decideBinaryAorB = (imageData, calibA, calibB) => {
+// Morphological helpers (3x3 structuring element)
+const erode = (mask, w, h) => {
+  const out = new Uint8Array(mask.length);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      let keep = 1;
+      const idx = y * w + x;
+      if (!mask[idx]) { out[idx] = 0; continue; }
+      for (let yy = -1; yy <= 1 && keep; yy++) {
+        for (let xx = -1; xx <= 1; xx++) {
+          if (!mask[(y + yy) * w + (x + xx)]) { keep = 0; break; }
+        }
+      }
+      out[idx] = keep;
+    }
+  }
+  return out;
+};
+const dilate = (mask, w, h) => {
+  const out = new Uint8Array(mask.length);
+  for (let y = 1; y < h - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      let any = 0;
+      for (let yy = -1; yy <= 1 && !any; yy++) {
+        for (let xx = -1; xx <= 1; xx++) {
+          if (mask[(y + yy) * w + (x + xx)]) { any = 1; break; }
+        }
+      }
+      out[y * w + x] = any;
+    }
+  }
+  return out;
+};
+
+// Connected components labeling (4-neighbor)
+const filterComponentsByArea = (mask, w, h, minArea, maxArea) => {
+  const visited = new Uint8Array(mask.length);
+  const stack = [];
+  for (let i = 0; i < mask.length; i++) {
+    if (!mask[i] || visited[i]) continue;
+    let area = 0;
+    stack.push(i);
+    visited[i] = 1;
+    const pixels = [];
+    while (stack.length) {
+      const idx = stack.pop();
+      pixels.push(idx);
+      area++;
+      const x = idx % w;
+      const y = (idx - x) / w;
+      // neighbors (4)
+      if (x > 0) {
+        const n = idx - 1; if (mask[n] && !visited[n]) { visited[n] = 1; stack.push(n); }
+      }
+      if (x < w - 1) {
+        const n = idx + 1; if (mask[n] && !visited[n]) { visited[n] = 1; stack.push(n); }
+      }
+      if (y > 0) {
+        const n = idx - w; if (mask[n] && !visited[n]) { visited[n] = 1; stack.push(n); }
+      }
+      if (y < h - 1) {
+        const n = idx + w; if (mask[n] && !visited[n]) { visited[n] = 1; stack.push(n); }
+      }
+    }
+    const keep = area >= minArea && area <= maxArea;
+    if (!keep) {
+      // zero out component
+      for (const p of pixels) mask[p] = 0;
+    }
+  }
+};
+
+const decideBinaryAorB = (imageData, calibA, calibB, roiX, roiY) => {
     const data = imageData.data;
     // Single calibration shortcuts
     if (calibA && !calibB) return 'Player A';
@@ -351,38 +464,75 @@ const decideBinaryAorB = (imageData, calibA, calibB) => {
 
     // Hue-only approach: ignore saturation/value distance; keep a tiny s/v floor to avoid gray/black/white noise
     const wH = detectorSettingsRef.current?.hueWeight ?? 4.0; // not used directly but kept for future tuning
+    const { bgDiffThreshold, minCompArea, maxCompArea, morphIterations } = testSettingsRef.current;
+    const bg = bgRef.current;
 
     let votesA = 0;
     let votesB = 0;
     let considered = 0;
 
+    const w = imageData.width;
+    const h = imageData.height;
+    // Classification arrays
+    const cls = new Uint8Array(w * h); // 0 none, 1 A, 2 B
+    let mask = new Uint8Array(w * h);  // candidate foreground mask (A or B)
+
     for (let i = 0; i < data.length; i += 4) {
       const r = data[i];
       const g = data[i + 1];
       const b = data[i + 2];
-      const [h, s, v] = rgbToHsv(r, g, b);
+      const [hue, s, v] = rgbToHsv(r, g, b);
 
       // Minimal check to avoid pure gray/white/black noise
       if (s < 20 || v < 20) continue;
 
+      // Background subtraction (if model captured)
+      if (bg) {
+        // Map ROI pixel to full-frame index
+        const pixelIndex = i / 4; // pixel number inside ROI
+        const px = pixelIndex % w;
+        const py = (pixelIndex - px) / w;
+        if (px + roiX < bg.width && py + roiY < bg.height) {
+          const bgIdx = ((py + roiY) * bg.width + (px + roiX)) * 4;
+          const dr = Math.abs(r - bg.data[bgIdx]);
+          const dg = Math.abs(g - bg.data[bgIdx + 1]);
+            const db = Math.abs(b - bg.data[bgIdx + 2]);
+          if ((dr + dg + db) < bgDiffThreshold) continue; // static background pixel
+        }
+      }
+
       // Pure hue distance (0..180 wrap)
-      const dhA = Math.min(Math.abs(h - calibA.h), 180 - Math.abs(h - calibA.h));
-      const dhB = Math.min(Math.abs(h - calibB.h), 180 - Math.abs(h - calibB.h));
+  const dhA = Math.min(Math.abs(hue - calibA.h), 180 - Math.abs(hue - calibA.h));
+  const dhB = Math.min(Math.abs(hue - calibB.h), 180 - Math.abs(hue - calibB.h));
 
       // Simple hue gates: within +/-20 degrees (10 units on 0..180 scale)
       const isCloseToA = dhA < 10;
       const isCloseToB = dhB < 10;
 
-      if (isCloseToA && !isCloseToB) {
-        votesA++;
-      } else if (isCloseToB && !isCloseToA) {
-        votesB++;
-      } else if (isCloseToA && isCloseToB) {
-        // Both close: choose the closer hue
-        if (dhA < dhB) votesA++; else votesB++;
+      if (isCloseToA || isCloseToB) {
+        const pixelIndex = i / 4;
+        mask[pixelIndex] = 1;
+        if (isCloseToA && !isCloseToB) cls[pixelIndex] = 1;
+        else if (isCloseToB && !isCloseToA) cls[pixelIndex] = 2;
+        else { // both
+          cls[pixelIndex] = dhA < dhB ? 1 : 2;
+        }
       }
+    }
 
-      if (isCloseToA || isCloseToB) considered++;
+    // Morphological opening to reduce noise
+    for (let iter = 0; iter < morphIterations; iter++) {
+      const er = erode(mask, w, h); // erode
+      mask = dilate(er, w, h);      // dilate
+    }
+    // Remove components outside area range
+    filterComponentsByArea(mask, w, h, minCompArea, maxCompArea);
+
+    // Aggregate votes only for surviving mask pixels
+    for (let p = 0; p < mask.length; p++) {
+      if (!mask[p]) continue;
+      if (cls[p] === 1) votesA++; else if (cls[p] === 2) votesB++;
+      considered++;
     }
 
     if (considered < 10) return 'None';
@@ -422,12 +572,26 @@ const decideBinaryAorB = (imageData, calibA, calibB) => {
     jsonLink.click();
   };
 
+  const captureBackground = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    // Copy data buffer to detach from live canvas
+    bgRef.current = { width: canvas.width, height: canvas.height, data: new Uint8ClampedArray(img.data) };
+    dbg('Background captured');
+  };
+
+  const clearBackground = () => { bgRef.current = null; dbg('Background cleared'); };
+
   return (
     <div className={`detector-window ${isMinimized ? 'minimized' : ''}`}>
       <div className="detector-header">
         <span>Bracelet Detector (Tests)</span>
         <div className="detector-controls">
           <button onClick={downloadLogs} title="Download Logs">📥</button>
+          <button onClick={captureBackground} title="Capture Background (no subjects)">🎞️BG</button>
+          <button onClick={clearBackground} title="Clear Background Model">♻️BG</button>
           <button onClick={() => setIsMinimized(!isMinimized)}>
             {isMinimized ? '▢' : '−'}
           </button>
@@ -441,6 +605,9 @@ const decideBinaryAorB = (imageData, calibA, calibB) => {
         <div className="detector-info">
           <div className="status-display">
             Status: <span style={{ color: getStatusCssColor(status), fontWeight: 700 }}>{status}</span>
+          </div>
+          <div style={{ fontSize: 11, opacity: 0.75, marginTop: 2 }}>
+            BG: {bgRef.current ? '✔ captured' : '— none'} | CompArea(px): {testSettings.minCompArea}-{testSettings.maxCompArea}
           </div>
           <div className="color-swatches" style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 4 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
