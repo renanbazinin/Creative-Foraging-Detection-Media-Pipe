@@ -6,7 +6,7 @@ import './BraceletDetector.css';
 // TOP-DOWN CLASSIFIER V3 - Anti-Flicker
 // Added: Deep Reach Locking and stiffer midline smoothing.
 
-function TopDownPlayerClassifier() {
+function TopDownPlayerClassifierV2() {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const handsRef = useRef(null);
