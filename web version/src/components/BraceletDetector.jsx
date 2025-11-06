@@ -44,6 +44,8 @@ function BraceletDetector() {
   const [cameraError, setCameraError] = useState(null);
   const [calibrationA, setCalibrationA] = useState(null);
   const [calibrationB, setCalibrationB] = useState(null);
+  // Live percentages (0..1) for A/B confidence shown in UI
+  const [abPercents, setAbPercents] = useState({ a: null, b: null });
   // Refs to avoid stale closures inside MediaPipe callbacks
   const calibrationARef = useRef(null);
   const calibrationBRef = useRef(null);
@@ -69,9 +71,7 @@ function BraceletDetector() {
   const requestIdRef = useRef(0);   // Increment to invalidate stale in-flight camera requests
   const initializedForRequestRef = useRef(null); // Track which request id initialized MediaPipe
 
-  const dbg = useCallback((...args) => {
-    if (DEBUG) console.log('[Detector]', ...args);
-  }, []);
+  // Removed duplicate dbg definition; using top-level dbg constant instead.
 
   const removeVideoEventListeners = useCallback((video) => {
     // This is a placeholder. The actual implementation was removed in a previous step.
@@ -443,7 +443,10 @@ function BraceletDetector() {
         const calibA = calibrationARef.current;
         const calibB = calibrationBRef.current;
         // Binary decision A vs B whenever a hand is visible
-        detectedStatus = decideBinaryAorB(roiData, calibA, calibB);
+        const decision = decideBinaryAorB(roiData, calibA, calibB);
+        detectedStatus = decision.status;
+        // Update live percentages for UI (0..1 or null)
+        setAbPercents({ a: decision.percentA, b: decision.percentB });
         dbg('Detection result:', detectedStatus, { roi: { x1, y1, w: x2 - x1, h: y2 - y1 } });
       }
     }
@@ -533,19 +536,17 @@ function BraceletDetector() {
   };
 
   // Presence based decision: declare A or B only if enough pixels are closer to that calibration.
-  // Adds a minimum percentage threshold; ignores very low saturation pixels as likely background/skin.
+  // Returns { status: 'Player A'|'Player B'|'None', percentA: 0..1|null, percentB: 0..1|null }
   const decideBinaryAorB = (imageData, calibA, calibB) => {
     const data = imageData.data;
     // If only one calibration exists, choose that label immediately
-    if (calibA && !calibB) return 'Player A';
-    if (calibB && !calibA) return 'Player B';
+    if (calibA && !calibB) return { status: 'Player A', percentA: null, percentB: null };
+    if (calibB && !calibA) return { status: 'Player B', percentA: null, percentB: null };
 
-    const MIN_PERCENT = 0.12; // Require at least 12% of ROI pixels to match
-    const MIN_SAT = 25;       // Ignore pixels with saturation below this (likely skin / noise)
-    const MIN_VAL = 30;       // Ignore very dark pixels
-    const wH = detectorSettingsRef.current?.hueWeight ?? 2.0;
-    const wS = detectorSettingsRef.current?.satWeight ?? 0.5;
-    const wV = detectorSettingsRef.current?.valWeight ?? 0.5;
+  // Use same fallback defaults as initial detectorSettings state for consistency
+  const wH = detectorSettingsRef.current?.hueWeight ?? 4.0;
+  const wS = detectorSettingsRef.current?.satWeight ?? 2.0;
+  const wV = detectorSettingsRef.current?.valWeight ?? 1.0;
     const sensitivity = detectorSettingsRef.current?.sensitivity ?? 0.0; // 0..1 (used to tighten threshold)
 
     if (calibA && calibB) {
@@ -556,38 +557,46 @@ function BraceletDetector() {
         const r = data[i];
         const g = data[i + 1];
         const b = data[i + 2];
-        const [h, s, v] = rgbToHsv(r, g, b);
-        if (s < MIN_SAT || v < MIN_VAL) continue; // skip dull/dark pixels
+    const [h, s, v] = rgbToHsv(r, g, b);
+  // Reliability weighting: instead of skipping dull/dark pixels outright,
+  // give them a lower influence. Weight grows with saturation/value.
+  // Scale S,V from 0..255 to 0..1, then combine.
+  const relS = Math.min(1, Math.max(0, s / 255));
+  const relV = Math.min(1, Math.max(0, v / 255));
+  const reliability = Math.max(0.05, 0.5 * relS + 0.5 * relV); // keep a small floor so no pixel is zeroed
         const dhA = Math.min(Math.abs(h - calibA.h), 180 - Math.abs(h - calibA.h));
         const dhB = Math.min(Math.abs(h - calibB.h), 180 - Math.abs(h - calibB.h));
         const dsA = Math.abs(s - calibA.s);
         const dsB = Math.abs(s - calibB.s);
         const dvA = Math.abs(v - calibA.v);
         const dvB = Math.abs(v - calibB.v);
-        const distA = dhA * wH + dsA * wS + dvA * wV;
-        const distB = dhB * wH + dsB * wS + dvB * wV;
-        if (distA <= distB) votesA++; else votesB++;
-        considered++;
+  const distA = dhA * wH + dsA * wS + dvA * wV;
+  const distB = dhB * wH + dsB * wS + dvB * wV;
+  // Neutral zone: if neither color is close enough, don't let this pixel vote
+  const minDist = Math.min(distA, distB);
+  if (minDist > 180) continue;
+  if (distA <= distB) votesA += reliability; else votesB += reliability;
+    considered += reliability;
       }
-      if (considered === 0) return 'None';
-      const percentA = votesA / considered;
-      const percentB = votesB / considered;
-      // Increase required percent slightly with sensitivity (0 -> MIN_PERCENT, 1 -> MIN_PERCENT + 10%)
-      const required = MIN_PERCENT * (1 + 0.8 * Math.max(0, Math.min(1, sensitivity)));
-      if (percentA >= required && percentA >= percentB) return 'Player A';
-      if (percentB >= required && percentB > percentA) return 'Player B';
-      return 'None';
+      if (considered === 0) return { status: 'None', percentA: 0, percentB: 0 };
+  const percentA = votesA / Math.max(1e-6, considered);
+  const percentB = votesB / Math.max(1e-6, considered);
+  // Increase required percent slightly with sensitivity (0 -> 0.12, 1 -> 0.12 * 1.8)
+  const required = 0.12 * (1 + 0.8 * Math.max(0, Math.min(1, sensitivity)));
+      if (percentA >= required && percentA >= percentB) return { status: 'Player A', percentA, percentB };
+      if (percentB >= required && percentB > percentA) return { status: 'Player B', percentA, percentB };
+      return { status: 'None', percentA, percentB };
     }
 
     // No calibrations: fallback to raw red vs blue counts.
     const { redCount, blueCount } = detectBraceletColor(imageData);
     const total = redCount + blueCount;
-    if (total === 0) return 'None';
+    if (total === 0) return { status: 'None', percentA: 0, percentB: 0 };
     const fracRed = redCount / total;
     const fracBlue = blueCount / total;
-    if (fracRed >= 0.15 && fracRed >= fracBlue) return 'Player A';
-    if (fracBlue >= 0.15 && fracBlue > fracRed) return 'Player B';
-    return 'None';
+    if (fracRed >= 0.15 && fracRed >= fracBlue) return { status: 'Player A', percentA: fracRed, percentB: fracBlue };
+    if (fracBlue >= 0.15 && fracBlue > fracRed) return { status: 'Player B', percentA: fracRed, percentB: fracBlue };
+    return { status: 'None', percentA: fracRed, percentB: fracBlue };
   };
 
   // Calibration save/clear handled on the dedicated calibration page
@@ -690,10 +699,16 @@ function BraceletDetector() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: 12, opacity: 0.8 }}>A</span>
                 <span title="Player A calibrated color" style={{ width: 14, height: 14, borderRadius: 3, border: '1px solid #666', display: 'inline-block', background: calibrationA ? calibToCss(calibrationA) : '#444' }} />
+                <span style={{ fontSize: 12, opacity: 0.8, minWidth: 36, textAlign: 'right' }} title="A confidence">
+                  {abPercents.a == null ? '—' : `${Math.round(Math.max(0, Math.min(1, abPercents.a)) * 100)}%`}
+                </span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <span style={{ fontSize: 12, opacity: 0.8 }}>B</span>
                 <span title="Player B calibrated color" style={{ width: 14, height: 14, borderRadius: 3, border: '1px solid #666', display: 'inline-block', background: calibrationB ? calibToCss(calibrationB) : '#444' }} />
+                <span style={{ fontSize: 12, opacity: 0.8, minWidth: 36, textAlign: 'right' }} title="B confidence">
+                  {abPercents.b == null ? '—' : `${Math.round(Math.max(0, Math.min(1, abPercents.b)) * 100)}%`}
+                </span>
               </div>
             </div>
             <div className="log-count">

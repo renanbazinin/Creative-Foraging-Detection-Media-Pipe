@@ -58,6 +58,9 @@ function BraceletDetectorTest() {
     sensitivity: getLSNumber(LS_KEYS.sensitivity, 0.0),
   }));
   const detectorSettingsRef = useRef(detectorSettings);
+  const debugCounterRef = useRef(0);
+  // Live belief metrics for UI
+  const statsRef = useRef({ percentA: 0, percentB: 0, wshareA: null, wshareB: null, considered: 0 });
 
   const streamRef = useRef(null);
   const isMounted = useRef(false);
@@ -339,43 +342,60 @@ function BraceletDetectorTest() {
     });
   };
 
-  const decideBinaryAorB = (imageData, calibA, calibB) => {
+const decideBinaryAorB = (imageData, calibA, calibB) => {
     const data = imageData.data;
+    // Single calibration shortcuts
     if (calibA && !calibB) return 'Player A';
     if (calibB && !calibA) return 'Player B';
+    if (!calibA && !calibB) return 'None';
 
-    const MIN_PERCENT = 0.12;
-    const MIN_SAT = 25;
-    const MIN_VAL = 30;
-    const wH = detectorSettingsRef.current?.hueWeight ?? 2.0;
-    const wS = detectorSettingsRef.current?.satWeight ?? 0.5;
-    const wV = detectorSettingsRef.current?.valWeight ?? 0.5;
-    const sensitivity = detectorSettingsRef.current?.sensitivity ?? 0.0;
+    // Hue-only approach: ignore saturation/value distance; keep a tiny s/v floor to avoid gray/black/white noise
+    const wH = detectorSettingsRef.current?.hueWeight ?? 4.0; // not used directly but kept for future tuning
 
-    if (calibA && calibB) {
-      let votesA = 0, votesB = 0, considered = 0;
-      for (let i = 0; i < data.length; i += 4) {
-        const r = data[i], g = data[i+1], b = data[i+2];
-        const [h,s,v] = rgbToHsv(r,g,b);
-        if (s < MIN_SAT || v < MIN_VAL) continue;
-        const dhA = Math.min(Math.abs(h - calibA.h), 180 - Math.abs(h - calibA.h));
-        const dhB = Math.min(Math.abs(h - calibB.h), 180 - Math.abs(h - calibB.h));
-        const dsA = Math.abs(s - calibA.s); const dsB = Math.abs(s - calibB.s);
-        const dvA = Math.abs(v - calibA.v); const dvB = Math.abs(v - calibB.v);
-        const distA = dhA * wH + dsA * wS + dvA * wV;
-        const distB = dhB * wH + dsB * wS + dvB * wV;
-        if (distA <= distB) votesA++; else votesB++;
-        considered++;
+    let votesA = 0;
+    let votesB = 0;
+    let considered = 0;
+
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const [h, s, v] = rgbToHsv(r, g, b);
+
+      // Minimal check to avoid pure gray/white/black noise
+      if (s < 20 || v < 20) continue;
+
+      // Pure hue distance (0..180 wrap)
+      const dhA = Math.min(Math.abs(h - calibA.h), 180 - Math.abs(h - calibA.h));
+      const dhB = Math.min(Math.abs(h - calibB.h), 180 - Math.abs(h - calibB.h));
+
+      // Simple hue gates: within +/-20 degrees (10 units on 0..180 scale)
+      const isCloseToA = dhA < 10;
+      const isCloseToB = dhB < 10;
+
+      if (isCloseToA && !isCloseToB) {
+        votesA++;
+      } else if (isCloseToB && !isCloseToA) {
+        votesB++;
+      } else if (isCloseToA && isCloseToB) {
+        // Both close: choose the closer hue
+        if (dhA < dhB) votesA++; else votesB++;
       }
-      if (considered === 0) return 'None';
-      const percentA = votesA / considered;
-      const percentB = votesB / considered;
-      const required = MIN_PERCENT * (1 + 0.8 * Math.max(0, Math.min(1, sensitivity)));
-      if (percentA >= required && percentA >= percentB) return 'Player A';
-      if (percentB >= required && percentB > percentA) return 'Player B';
-      return 'None';
+
+      if (isCloseToA || isCloseToB) considered++;
     }
 
+    if (considered < 10) return 'None';
+
+    const percentA = votesA / considered;
+    const percentB = votesB / considered;
+
+    // Update UI stats (percent-based)
+    statsRef.current = { percentA, percentB, wshareA: null, wshareB: null, considered };
+
+    const margin = 0.10; // require ~10% margin over 50%
+    if (percentA > 0.5 + margin) return 'Player A';
+    if (percentB > 0.5 + margin) return 'Player B';
     return 'None';
   };
 
@@ -426,10 +446,26 @@ function BraceletDetectorTest() {
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 12, opacity: 0.8 }}>A</span>
               <span title="Player A calibrated color" style={{ width: 14, height: 14, borderRadius: 3, border: '1px solid #666', display: 'inline-block', background: calibrationA ? calibToCss(calibrationA) : '#444' }} />
+              <span style={{ fontSize: 12, opacity: 0.9 }}>
+                {(() => {
+                  const { wshareA, percentA, considered } = statsRef.current || {};
+                  if (!considered) return '—';
+                  const p = Number.isFinite(wshareA) ? wshareA : percentA;
+                  return `${Math.round(p * 100)}%`;
+                })()}
+              </span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
               <span style={{ fontSize: 12, opacity: 0.8 }}>B</span>
               <span title="Player B calibrated color" style={{ width: 14, height: 14, borderRadius: 3, border: '1px solid #666', display: 'inline-block', background: calibrationB ? calibToCss(calibrationB) : '#444' }} />
+              <span style={{ fontSize: 12, opacity: 0.9 }}>
+                {(() => {
+                  const { wshareB, percentB, considered } = statsRef.current || {};
+                  if (!considered) return '—';
+                  const p = Number.isFinite(wshareB) ? wshareB : percentB;
+                  return `${Math.round(p * 100)}%`;
+                })()}
+              </span>
             </div>
           </div>
         </div>
