@@ -5,6 +5,7 @@ import GameCanvas from './components/GameCanvas';
 import BraceletDetector from './components/BraceletDetector';
 import ColorCalibration from './components/ColorCalibration';
 import Tests from './components/Tests';
+import Tests2 from './components/Tests2';
 
 // ===== CONFIGURATION =====
 const ENABLE_DETECTOR = true; // Set to false to disable bracelet detector
@@ -72,6 +73,8 @@ function App() {
     body = <ColorCalibration />;
   } else if (currentRoute === '#/tests') {
     body = <Tests />;
+  } else if (currentRoute === '#/tests2') {
+    body = <Tests2 />;
   } else {
     body = (!gameStarted ? (
       <StartDialog onStart={handleStartGame} />
@@ -84,6 +87,10 @@ function App() {
             Open Detector Window
           </button>
         )}
+        <div style={{ position:'fixed', bottom:8, right:8, display:'flex', flexDirection:'column', gap:4, zIndex:9999 }}>
+          <a href="#/tests" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>Tests</a>
+          <a href="#/tests2" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>Tests2</a>
+        </div>
       </>
     ));
   }
