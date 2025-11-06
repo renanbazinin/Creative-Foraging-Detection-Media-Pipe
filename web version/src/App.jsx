@@ -6,6 +6,9 @@ import BraceletDetector from './components/BraceletDetector';
 import ColorCalibration from './components/ColorCalibration';
 import Tests from './components/Tests';
 import Tests2 from './components/Tests2';
+import Tests3 from './components/Tests3';
+import TopDownPlayerClassifier from './components/TopDownPlayerClassifier';
+import TopDownPlayerClassifierV2 from './components/TopDownPlayerClassifierV2';
 
 // ===== CONFIGURATION =====
 const ENABLE_DETECTOR = true; // Set to false to disable bracelet detector
@@ -75,6 +78,12 @@ function App() {
     body = <Tests />;
   } else if (currentRoute === '#/tests2') {
     body = <Tests2 />;
+  } else if (currentRoute === '#/tests3') {
+    body = <Tests3 />;
+  } else if (currentRoute === '#/topdown') {
+    body = <TopDownPlayerClassifier />;
+  } else if (currentRoute === '#/topdown2') {  
+    body = <TopDownPlayerClassifierV2 />;
   } else {
     body = (!gameStarted ? (
       <StartDialog onStart={handleStartGame} />
@@ -90,6 +99,9 @@ function App() {
         <div style={{ position:'fixed', bottom:8, right:8, display:'flex', flexDirection:'column', gap:4, zIndex:9999 }}>
           <a href="#/tests" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>Tests</a>
           <a href="#/tests2" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>Tests2</a>
+          <a href="#/tests3" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>Tests3</a>
+            <a href="#/topdown" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>TopDown</a>
+          <a href="#/topdown2" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>TopDown2</a>
         </div>
       </>
     ));
