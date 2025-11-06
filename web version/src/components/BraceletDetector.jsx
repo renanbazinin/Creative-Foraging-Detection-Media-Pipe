@@ -383,11 +383,8 @@ function BraceletDetector() {
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
 
-    // Draw video frame (flipped)
-    ctx.save();
-    ctx.scale(-1, 1);
-    ctx.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-    ctx.restore();
+  // Draw video frame (not flipped)
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
   let detectedStatus = 'None';
 
@@ -412,7 +409,7 @@ function BraceletDetector() {
 
       if (highestHand) {
         const wrist = highestHand[0];
-        const wristX = (1 - wrist.x) * canvas.width; // Flip x
+  const wristX = wrist.x * canvas.width;
         const wristY = wrist.y * canvas.height;
 
         // Mark selected hand
@@ -483,8 +480,8 @@ function BraceletDetector() {
       const startPoint = landmarks[start];
       const endPoint = landmarks[end];
       ctx.beginPath();
-      ctx.moveTo((1 - startPoint.x) * width, startPoint.y * height);
-      ctx.lineTo((1 - endPoint.x) * width, endPoint.y * height);
+      ctx.moveTo(startPoint.x * width, startPoint.y * height);
+      ctx.lineTo(endPoint.x * width, endPoint.y * height);
       ctx.stroke();
     });
 
@@ -492,7 +489,7 @@ function BraceletDetector() {
     landmarks.forEach(landmark => {
       ctx.fillStyle = 'red';
       ctx.beginPath();
-      ctx.arc((1 - landmark.x) * width, landmark.y * height, 5, 0, 2 * Math.PI);
+      ctx.arc(landmark.x * width, landmark.y * height, 5, 0, 2 * Math.PI);
       ctx.fill();
     });
   };
@@ -687,9 +684,7 @@ function BraceletDetector() {
               height: '1px',
             }}
           ></video>
-          <canvas ref={canvasRef} className="output_canvas" style={{
-            transform: 'scaleX(-1)',
-          }} />
+          <canvas ref={canvasRef} className="output_canvas" />
           
           <div className="detector-info">
             <div className="status-display">
