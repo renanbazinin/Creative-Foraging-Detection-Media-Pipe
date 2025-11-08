@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './GameCanvas.css';
 import CSVLogger from '../utils/csvLogger';
+import { getGameTracker } from '../utils/gameTracker';
 import {
   createInitialBlocks,
   getAllowedPositions,
@@ -27,6 +28,8 @@ function GameCanvas({ config }) {
 
   const canvasRef = useRef(null);
   const loggerRef = useRef(new CSVLogger(config.id));
+  const gameTrackerRef = useRef(getGameTracker());
+  const blockPickupTimeRef = useRef(null); // Track when block was picked up
   const startTimeRef = useRef(Date.now());
 
   const welcomeMessage = `Welcome to the creative game!
@@ -47,6 +50,15 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
 
   useEffect(() => {
     setMessageText(welcomeMessage);
+    
+    // Start game tracker when component mounts
+    gameTrackerRef.current.start();
+    console.log('[GameCanvas] Game tracker started');
+    
+    return () => {
+      // Stop tracker on unmount
+      gameTrackerRef.current.stop();
+    };
   }, []);
 
   // Timer
@@ -58,9 +70,10 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
             clearInterval(timer);
             setShowMessage(true);
             setMessageText(byeMessage);
-            // Download CSV
+            // Download CSV and JSON
             setTimeout(() => {
               loggerRef.current.downloadCSV();
+              gameTrackerRef.current.downloadJSON();
             }, 1000);
             return 0;
           }
@@ -125,6 +138,9 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const blockX = relativeToPixel(block.position[0], 'x');
     const blockY = relativeToPixel(block.position[1], 'y');
 
+    // Record when block was picked up for hold time calculation
+    blockPickupTimeRef.current = Date.now();
+
     setDraggedBlock(blockId);
     setDragOffset({
       x: pos.x - blockX,
@@ -157,7 +173,19 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const allowedPos = getAllowedPositions(blocks, draggedBlock);
     const snappedPos = snapToAllowed(allowedPos, block.position);
 
-    // Log the move
+    // Calculate hold time
+    const holdTime = blockPickupTimeRef.current 
+      ? (Date.now() - blockPickupTimeRef.current) / 1000 
+      : 0;
+
+    // Create updated blocks array with the snapped position
+    const updatedBlocks = blocks.map(b =>
+      b.id === draggedBlock
+        ? { ...b, position: snappedPos }
+        : b
+    );
+
+    // Log the move to CSV with the final snapped position and updated all_positions
     const logEntry = {
       date: config.date,
       id: config.id,
@@ -166,13 +194,16 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       type: 'moveblock',
       time: getElapsedTime(),
       unit: draggedBlock,
-      end_position: snappedPos,
-      all_positions: blocks.map(b => b.position),
+      end_position: snappedPos, // Final snapped position
+      all_positions: updatedBlocks.map(b => b.position), // All positions after snap
       gallery_shape_number: null,
       gallery: null,
       gallery_normalized: null
     };
     loggerRef.current.write(logEntry);
+
+    // Also log to game tracker with player attribution
+    gameTrackerRef.current.recordMove(logEntry, holdTime);
 
     setBlocks(prevBlocks => {
       const updated = prevBlocks.map(b =>
@@ -184,6 +215,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     });
 
     setDraggedBlock(null);
+    blockPickupTimeRef.current = null;
   };
 
   const handleGalleryClick = () => {
@@ -207,6 +239,9 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       gallery_normalized: normalizedPos
     };
     loggerRef.current.write(logEntry);
+
+    // Also log to game tracker
+    gameTrackerRef.current.recordMove(logEntry, 0);
 
     // Create canvas screenshot
     const screenshot = captureCanvas();
@@ -251,14 +286,24 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       setBlocks(createInitialBlocks());
       setGalleryImage(null);
       setGalleryNumber(0);
+      
+      // Clear all collected data from practice and start fresh
+      loggerRef.current = new CSVLogger(config.id);
+      
+      // Restart game tracker for real game
+      gameTrackerRef.current.stop();
+      gameTrackerRef.current = getGameTracker();
+      gameTrackerRef.current.start();
+      console.log('[GameCanvas] Game tracker restarted for real game');
     } else if (e.key === 'q' && !isPractice) {
       setShowMessage(true);
       setMessageText(byeMessage);
       setTimeout(() => {
         loggerRef.current.downloadCSV();
+        gameTrackerRef.current.downloadJSON();
       }, 1000);
     }
-  }, [isPractice]);
+  }, [isPractice, config.id]);
 
   useEffect(() => {
     window.addEventListener('keydown', handleKeyPress);

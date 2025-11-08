@@ -111,7 +111,7 @@
   border: clamp(2px, 0.4vw, 4px) solid white;
   display: flex;
   align-items: center;
-  justify-content: center;
+  justify-content: space-between; /* Center content with space distribution */
   box-shadow: 0 4px 10px rgba(255, 255, 255, 0.3);
 }
 
