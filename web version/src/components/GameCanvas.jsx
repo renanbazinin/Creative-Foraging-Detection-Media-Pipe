@@ -311,6 +311,33 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
   }, [handleKeyPress]);
 
   const closeMessage = () => {
+    // Play sound if transitioning from practice to real game
+    if (!isPractice && messageText === practiceDoneMessage) {
+      // Create a simple beep sound using Web Audio API
+      try {
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+        
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+        
+        // Create a pleasant "start" sound: two tones
+        oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // First tone (high)
+        oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.15); // Second tone (lower)
+        
+        gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
+        
+        oscillator.start(audioContext.currentTime);
+        oscillator.stop(audioContext.currentTime + 0.3);
+        
+        console.log('[GameCanvas] 🔔 Playing start sound - Real experiment begins!');
+      } catch (e) {
+        console.error('[GameCanvas] Error playing sound:', e);
+      }
+    }
+    
     setShowMessage(false);
   };
 

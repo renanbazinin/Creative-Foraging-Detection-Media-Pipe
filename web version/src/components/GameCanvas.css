@@ -98,7 +98,7 @@
 .gallery {
   position: absolute;
   top: clamp(10px, 2vh, 20px);
-  right: clamp(10px, 2vw, 20px);
+  left: clamp(10px, 2vw, 20px);
   cursor: pointer;
   z-index: 10;
   pointer-events: auto;
