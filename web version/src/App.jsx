@@ -132,6 +132,22 @@ function App() {
           </button>
         )}
         <div style={{ position:'fixed', bottom:8, right:8, display:'flex', flexDirection:'column', gap:4, zIndex:9999 }}>
+            <button 
+              onClick={openDetectorWindow}
+              style={{ 
+                background:'#4CAF50', 
+                color:'#fff', 
+                padding:'8px 12px', 
+                borderRadius:4, 
+                fontSize:14,
+                border:'none',
+                cursor:'pointer',
+                boxShadow:'0 2px 8px rgba(0,0,0,0.3)'
+              }}
+              title="Open Bracelet Detector in new window"
+            >
+              📷 Detector
+            </button>
             <a href="#/detector2" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>Detector2</a>
            </div>
       </>
