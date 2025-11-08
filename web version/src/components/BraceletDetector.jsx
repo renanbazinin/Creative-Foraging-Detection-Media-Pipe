@@ -108,6 +108,19 @@ function BraceletDetector() {
       const constraints = selectedCamera 
         ? { video: { deviceId: { exact: selectedCamera } } }
         : { video: true };
+      
+      // Log which camera we're trying to use
+      if (selectedCamera) {
+        const selectedDevice = availableDevices.find(d => d.deviceId === selectedCamera);
+        console.log('[Detector] 🎥 Loading SELECTED camera:', {
+          deviceId: selectedCamera,
+          label: selectedDevice?.label || 'Unknown',
+          source: 'localStorage or user selection'
+        });
+      } else {
+        console.log('[Detector] 🎥 Loading DEFAULT camera (no selection saved)');
+      }
+      
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       // If component unmounted or a newer request started, abandon this stream
@@ -118,7 +131,20 @@ function BraceletDetector() {
       }
 
       streamRef.current = stream;
-      dbg('getUserMedia success. Tracks:', stream.getVideoTracks());
+      const tracks = stream.getVideoTracks();
+      dbg('getUserMedia success. Tracks:', tracks);
+      
+      // Log the actual camera that was loaded
+      if (tracks.length > 0) {
+        const track = tracks[0];
+        console.log('[Detector] ✅ Camera loaded successfully:', {
+          label: track.label,
+          deviceId: track.getSettings().deviceId,
+          resolution: `${track.getSettings().width}x${track.getSettings().height}`,
+          frameRate: track.getSettings().frameRate
+        });
+      }
+      
       // Attach stream and wait for metadata to ensure dimensions are known
       video.srcObject = stream;
 
@@ -218,13 +244,23 @@ function BraceletDetector() {
         
         if (cameraExists) {
           // Saved camera exists, use it
+          const savedDevice = videoDevices.find(d => d.deviceId === savedCamera);
           setSelectedCamera(savedCamera);
+          console.log('[Detector] 💾 Found saved camera in localStorage:', {
+            deviceId: savedCamera,
+            label: savedDevice?.label || 'Unknown'
+          });
           dbg('Using saved camera:', savedCamera);
         } else if (videoDevices.length > 0) {
           // Saved camera doesn't exist or no camera was saved, use first available (default)
           const defaultCamera = videoDevices[0].deviceId;
           setSelectedCamera(defaultCamera);
           localStorage.setItem(LS_KEYS.selectedCamera, defaultCamera);
+          console.log('[Detector] 🔧 No saved camera found, using system default:', {
+            deviceId: defaultCamera,
+            label: videoDevices[0].label || 'Unknown',
+            savedCameraWas: savedCamera || 'none'
+          });
           dbg('Saved camera not found, using default camera:', defaultCamera);
         }
       } catch (e) {
