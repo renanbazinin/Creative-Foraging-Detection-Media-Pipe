@@ -5,8 +5,8 @@ import './BraceletDetector.css';
 
 const ENABLE_DETECTOR = true; // Master switch
 
-// Debug logging helper
-const DEBUG = true;
+// Debug logging helper (disabled)
+const DEBUG = false;
 const dbg = (...args) => { if (DEBUG) console.log('[Detector]', ...args); };
 
 // Color detection thresholds (converted from Python HSV to JS)
@@ -31,6 +31,7 @@ const LS_KEYS = {
   satWeight: 'detectorSatWeight',
   valWeight: 'detectorValWeight',
   sensitivity: 'detectorSensitivity',
+  selectedCamera: 'detectorSelectedCamera',
 };
 
 function BraceletDetector() {
@@ -71,6 +72,12 @@ function BraceletDetector() {
   const requestIdRef = useRef(0);   // Increment to invalidate stale in-flight camera requests
   const initializedForRequestRef = useRef(null); // Track which request id initialized MediaPipe
 
+  // Camera device selection
+  const [availableDevices, setAvailableDevices] = useState([]);
+  const [selectedCamera, setSelectedCamera] = useState(() => {
+    return localStorage.getItem(LS_KEYS.selectedCamera) || '';
+  });
+
   // Removed duplicate dbg definition; using top-level dbg constant instead.
 
   const removeVideoEventListeners = useCallback((video) => {
@@ -97,7 +104,11 @@ function BraceletDetector() {
 
     dbg('Requesting getUserMedia...');
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      // Use selected camera if available, otherwise use default
+      const constraints = selectedCamera 
+        ? { video: { deviceId: { exact: selectedCamera } } }
+        : { video: true };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
 
       // If component unmounted or a newer request started, abandon this stream
       if (!isMounted.current || myRequestId !== requestIdRef.current) {
@@ -193,6 +204,35 @@ function BraceletDetector() {
   };
   useEffect(() => {
     isMounted.current = true;
+    
+    // Enumerate available cameras
+    const enumerateCameras = async () => {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        const videoDevices = devices.filter(d => d.kind === 'videoinput');
+        setAvailableDevices(videoDevices);
+        
+        // Check if saved camera still exists
+        const savedCamera = localStorage.getItem(LS_KEYS.selectedCamera);
+        const cameraExists = savedCamera && videoDevices.some(d => d.deviceId === savedCamera);
+        
+        if (cameraExists) {
+          // Saved camera exists, use it
+          setSelectedCamera(savedCamera);
+          dbg('Using saved camera:', savedCamera);
+        } else if (videoDevices.length > 0) {
+          // Saved camera doesn't exist or no camera was saved, use first available (default)
+          const defaultCamera = videoDevices[0].deviceId;
+          setSelectedCamera(defaultCamera);
+          localStorage.setItem(LS_KEYS.selectedCamera, defaultCamera);
+          dbg('Saved camera not found, using default camera:', defaultCamera);
+        }
+      } catch (e) {
+        dbg('Error enumerating cameras:', e);
+      }
+    };
+    enumerateCameras();
+    
     if (ENABLE_DETECTOR) {
       dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform, 'Visibility:', document.visibilityState);
       requestCameraPermission();
@@ -461,6 +501,11 @@ function BraceletDetector() {
   ctx.fillText(`Status: ${detectedStatus}`, 10, 40);
 
     setStatus(detectedStatus);
+    
+    // Expose status to game tracker
+    if (typeof window !== 'undefined') {
+      window.currentBraceletStatus = detectedStatus;
+    }
   };
 
   const drawLandmarks = (ctx, landmarks, width, height) => {
@@ -630,6 +675,16 @@ function BraceletDetector() {
     dbg('Adding video event listeners (if needed in the future).');
   };
 
+  const handleCameraChange = (deviceId) => {
+    setSelectedCamera(deviceId);
+    localStorage.setItem(LS_KEYS.selectedCamera, deviceId);
+    dbg('Camera selection saved to localStorage:', deviceId);
+  };
+
+  const handleReload = () => {
+    window.location.reload();
+  };
+
   const downloadLogs = () => {
     const logs = JSON.parse(localStorage.getItem('braceletDetections') || '[]');
     
@@ -671,6 +726,27 @@ function BraceletDetector() {
       </div>
       
       <div className="detector-content" style={{ display: isMinimized ? 'none' : 'block' }}>
+          <div style={{ fontSize: 12, opacity: 0.8, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span>Camera:</span>
+            <select 
+              value={selectedCamera} 
+              onChange={(e) => handleCameraChange(e.target.value)}
+              style={{ fontSize: 11, padding: '3px 6px', flex: 1, maxWidth: 200 }}
+            >
+              {availableDevices.map(dev => (
+                <option key={dev.deviceId} value={dev.deviceId}>
+                  {dev.label || `Camera ${dev.deviceId.slice(0, 8)}`}
+                </option>
+              ))}
+            </select>
+            <button 
+              onClick={handleReload} 
+              title="Reload page to apply camera change"
+              style={{ fontSize: 11, padding: '3px 8px', cursor: 'pointer' }}
+            >
+              🔄 Reload
+            </button>
+          </div>
           <video
             ref={videoRef}
             autoPlay

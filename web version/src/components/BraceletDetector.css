@@ -30,6 +30,7 @@
 .detector-controls {
   display: flex;
   gap: 10px;
+  align-items: center;
 }
 
 .detector-controls button {
@@ -46,6 +47,28 @@
 .detector-controls button:hover {
   background-color: rgba(255, 255, 255, 0.2);
   transform: scale(1.1);
+}
+
+.camera-selector {
+  background-color: rgba(255, 255, 255, 0.9);
+  border: 1px solid white;
+  color: #333;
+  padding: 5px 8px;
+  cursor: pointer;
+  border-radius: 3px;
+  font-size: 12px;
+  max-width: 180px;
+  transition: all 0.2s;
+}
+
+.camera-selector:hover {
+  background-color: white;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.camera-selector:focus {
+  outline: 2px solid rgba(255, 255, 255, 0.5);
+  outline-offset: 2px;
 }
 
 .detector-content {

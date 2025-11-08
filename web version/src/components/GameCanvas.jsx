@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import './GameCanvas.css';
 import CSVLogger from '../utils/csvLogger';
+import { getGameTracker } from '../utils/gameTracker';
 import {
   createInitialBlocks,
   getAllowedPositions,
@@ -13,6 +14,13 @@ import {
 
 const BLOCK_SIZE_PX = 60; // pixels
 const GRID_STEP = 0.07;
+const GRID_UNIT = GRID_STEP / 2;
+
+const roundPosition = (pos) => [round3(pos[0]), round3(pos[1])];
+const toGridCoords = (pos) => [
+  Math.round(pos[0] / GRID_UNIT),
+  Math.round(pos[1] / GRID_UNIT)
+];
 
 function GameCanvas({ config }) {
   const [blocks, setBlocks] = useState(createInitialBlocks());
@@ -28,6 +36,9 @@ function GameCanvas({ config }) {
   const canvasRef = useRef(null);
   const loggerRef = useRef(new CSVLogger(config.id));
   const startTimeRef = useRef(Date.now());
+  const gameTrackerRef = useRef(getGameTracker());
+  const dragStartPositionRef = useRef(null);
+  const dragStartTimeRef = useRef(null); // Track when block drag started
 
   const welcomeMessage = `Welcome to the creative game!
 
@@ -47,6 +58,13 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
 
   useEffect(() => {
     setMessageText(welcomeMessage);
+    // Start game tracking
+    gameTrackerRef.current.start();
+    
+    return () => {
+      // Stop tracking on unmount
+      gameTrackerRef.current.stop();
+    };
   }, []);
 
   // Timer
@@ -105,6 +123,10 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const blockX = relativeToPixel(block.position[0], 'x');
     const blockY = relativeToPixel(block.position[1], 'y');
 
+    // Store the starting position and time for tracking
+    dragStartPositionRef.current = roundPosition(block.position);
+    dragStartTimeRef.current = Date.now(); // Record when drag started
+
     setDraggedBlock(blockId);
     setDragOffset({
       x: mouseX - blockX,
@@ -137,6 +159,22 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const block = blocks.find(b => b.id === draggedBlock);
     const allowedPos = getAllowedPositions(blocks, draggedBlock);
     const snappedPos = snapToAllowed(allowedPos, block.position);
+    const roundedSnappedPos = roundPosition(snappedPos);
+
+    // Check if position actually changed (even if dropped in same area)
+    const startPos = dragStartPositionRef.current;
+    const positionChanged = !startPos || 
+      Math.abs(startPos[0] - roundedSnappedPos[0]) > 0.0001 || 
+      Math.abs(startPos[1] - roundedSnappedPos[1]) > 0.0001;
+
+    // Prepare updated positions rounded to grid
+    const updatedPositions = blocks.map(b =>
+      b.id === draggedBlock
+        ? roundedSnappedPos
+        : roundPosition(b.position)
+    );
+    const updatedGridPositions = updatedPositions.map(toGridCoords);
+    const gridEndPosition = toGridCoords(roundedSnappedPos);
 
     // Log the move
     const logEntry = {
@@ -147,29 +185,57 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       type: 'moveblock',
       time: getElapsedTime(),
       unit: draggedBlock,
-      end_position: snappedPos,
-      all_positions: blocks.map(b => b.position),
+      end_position: roundedSnappedPos,
+      all_positions: updatedPositions,
+      grid_end_position: gridEndPosition,
+      grid_all_positions: updatedGridPositions,
       gallery_shape_number: null,
       gallery: null,
       gallery_normalized: null
     };
     loggerRef.current.write(logEntry);
 
+    // Calculate hold time (how long the player held the block)
+    const holdTime = dragStartTimeRef.current 
+      ? (Date.now() - dragStartTimeRef.current) / 1000 
+      : 0;
+
+    // Track move with bracelet detection (only record final position)
+    // We only care about where the block was dropped, not intermediate positions
+    gameTrackerRef.current.recordMove({
+      date: config.date,
+      id: config.id,
+      condition: config.condition,
+      phase: isPractice ? 'practice' : 'experiment',
+      type: 'moveblock',
+      unit: draggedBlock,
+      start_position: startPos,
+      end_position: roundedSnappedPos, // Only final position matters
+      all_positions: updatedPositions,
+      grid_end_position: gridEndPosition,
+      grid_all_positions: updatedGridPositions,
+      position_changed: positionChanged
+    }, holdTime);
+
     setBlocks(prevBlocks => {
       const updated = prevBlocks.map(b =>
         b.id === draggedBlock
-          ? { ...b, position: snappedPos }
-          : b
+          ? { ...b, position: roundedSnappedPos }
+          : { ...b, position: [round3(b.position[0]), round3(b.position[1])] }
       );
       return updateCanMove(updateNeighbors(updated), isPractice);
     });
 
     setDraggedBlock(null);
+    dragStartPositionRef.current = null;
+    dragStartTimeRef.current = null;
   };
 
   const handleGalleryClick = () => {
-    const positions = blocks.map(b => b.position);
+    const positions = blocks.map(b => roundPosition(b.position));
     const normalizedPos = resetPositions(positions);
+    const gridPositions = positions.map(toGridCoords);
+    const gridNormalized = normalizedPos ? normalizedPos.map(toGridCoords) : null;
     const newGalleryNum = galleryNumber + 1;
 
     // Log to CSV
@@ -185,9 +251,25 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       all_positions: null,
       gallery_shape_number: newGalleryNum,
       gallery: positions,
-      gallery_normalized: normalizedPos
+      gallery_normalized: normalizedPos,
+      grid_gallery: gridPositions,
+      grid_gallery_normalized: gridNormalized
     };
     loggerRef.current.write(logEntry);
+
+    // Track gallery save (no hold time for gallery clicks)
+    gameTrackerRef.current.recordMove({
+      date: config.date,
+      id: config.id,
+      condition: config.condition,
+      phase: isPractice ? 'practice' : 'experiment',
+      type: 'added shape to gallery',
+      gallery_shape_number: newGalleryNum,
+      gallery: positions,
+      gallery_normalized: normalizedPos,
+      grid_gallery: gridPositions,
+      grid_gallery_normalized: gridNormalized
+    }, 0);
 
     // Create canvas screenshot
     const screenshot = captureCanvas();
@@ -214,7 +296,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
         const x = (pos[0] + 0.5) * 400;
         const y = (pos[1] + 0.5) * 400;
         ctx.fillStyle = 'green';
-        ctx.fillRect(x - 15, y - 15, 30, 30);
+        ctx.fillRect(x - BLOCK_SIZE_PX / 2, y - BLOCK_SIZE_PX / 2, BLOCK_SIZE_PX, BLOCK_SIZE_PX);
       });
     }
 
