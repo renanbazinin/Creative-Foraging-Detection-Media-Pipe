@@ -343,11 +343,9 @@ function BraceletDetector() {
   useEffect(() => { detectorSettingsRef.current = detectorSettings; }, [detectorSettings]);
 
   // Request camera when selectedCamera changes (after enumeration or user selection)
-  const hasInitializedCamera = useRef(false);
   useEffect(() => {
-    if (ENABLE_DETECTOR && selectedCamera && !hasInitializedCamera.current) {
-      hasInitializedCamera.current = true;
-      dbg('Selected camera is set, requesting camera permission with:', selectedCamera);
+    if (ENABLE_DETECTOR && selectedCamera) {
+      dbg('Selected camera changed, requesting camera permission with:', selectedCamera);
       requestCameraPermission();
     }
   }, [selectedCamera, requestCameraPermission]);
@@ -475,15 +473,15 @@ function BraceletDetector() {
 
     if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
       dbg('onResults: hands=', results.multiHandLandmarks.length);
-      // Find highest hand (smallest y value)
-      let highestHand = null;
-      let highestY = 1;
+      // Find lowest hand (largest y value = closer to bottom of screen)
+      let lowestHand = null;
+      let lowestY = 0;
 
       results.multiHandLandmarks.forEach(landmarks => {
         const wrist = landmarks[0]; // WRIST landmark
-        if (wrist.y < highestY) {
-          highestY = wrist.y;
-          highestHand = landmarks;
+        if (wrist.y > lowestY) {
+          lowestY = wrist.y;
+          lowestHand = landmarks;
         }
       });
 
@@ -492,8 +490,8 @@ function BraceletDetector() {
         drawLandmarks(ctx, landmarks, canvas.width, canvas.height);
       });
 
-      if (highestHand) {
-        const wrist = highestHand[0];
+      if (lowestHand) {
+        const wrist = lowestHand[0];
   const wristX = wrist.x * canvas.width;
         const wristY = wrist.y * canvas.height;
 
@@ -726,10 +724,6 @@ function BraceletDetector() {
     dbg('Camera selection saved to localStorage:', deviceId);
   };
 
-  const handleReload = () => {
-    window.location.reload();
-  };
-
   const downloadLogs = () => {
     const logs = JSON.parse(localStorage.getItem('braceletDetections') || '[]');
     
@@ -784,13 +778,6 @@ function BraceletDetector() {
                 </option>
               ))}
             </select>
-            <button 
-              onClick={handleReload} 
-              title="Reload page to apply camera change"
-              style={{ fontSize: 11, padding: '3px 8px', cursor: 'pointer' }}
-            >
-              🔄 Reload
-            </button>
           </div>
           <video
             ref={videoRef}
