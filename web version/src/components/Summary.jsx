@@ -89,7 +89,9 @@ function Summary() {
           const x = (pos[0] + 0.5) * 400;
           const y = (pos[1] + 0.5) * 400;
           ctx.fillStyle = 'green';
-          ctx.fillRect(x - 30, y - 30, 60, 60); // 60px blocks to match GameCanvas
+          // Use proportional block size (60px for 400px canvas = 15% of canvas)
+          const blockSize = 60;
+          ctx.fillRect(x - blockSize / 2, y - blockSize / 2, blockSize, blockSize);
         });
         
         currentGalleryImages.push({
@@ -158,6 +160,22 @@ function Summary() {
     if (gameData && currentMoveIndex >= 0) {
       applyMovesUpTo(currentMoveIndex);
     }
+  }, [gameData, currentMoveIndex, applyMovesUpTo]);
+
+  // Handle window resize to recalculate block positions
+  useEffect(() => {
+    const handleResize = () => {
+      // Force re-render of blocks when window resizes
+      if (gameData && currentMoveIndex >= 0) {
+        // Small delay to ensure canvas has resized
+        setTimeout(() => {
+          applyMovesUpTo(currentMoveIndex);
+        }, 100);
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, [gameData, currentMoveIndex, applyMovesUpTo]);
 
   const goToMove = (index) => {

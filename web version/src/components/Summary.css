@@ -161,18 +161,18 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 24px;
+  padding: 20px;
   background: #1a1a1a;
-  min-height: 600px;
   width: 100%;
   box-sizing: border-box;
+  position: relative;
 }
 
 .summary-game-area .game-canvas {
   width: 100%;
-  max-width: min(100%, 80vh);
+  max-width: min(100vw, 120vh, 900px); /* Match GameCanvas sizing */
   aspect-ratio: 1;
-  margin: 0;
+  margin: 0 auto;
   position: relative;
   flex-shrink: 0;
   background-color: #000;
@@ -180,20 +180,57 @@
   user-select: none;
 }
 
+/* Responsive adjustments */
+@media (max-width: 1200px) {
+  .summary-game-area .game-canvas {
+    max-width: min(100%, 80vw, calc(100vh - 200px));
+  }
+}
+
+@media (max-width: 768px) {
+  .summary-game-area {
+    padding: 12px;
+  }
+  
+  .summary-game-area .game-canvas {
+    max-width: min(100%, calc(100vw - 24px), calc(100vh - 150px));
+  }
+}
+
+@media (min-width: 1400px) {
+  .summary-game-area .game-canvas {
+    max-width: 900px;
+  }
+}
+
+/* Ensure blocks scale proportionally with canvas - match GameCanvas */
+.summary-game-area .block {
+  /* Scale blocks proportionally with canvas - 6% of viewport height, clamped between 50px and 80px */
+  width: clamp(50px, 6vh, 80px);
+  height: clamp(50px, 6vh, 80px);
+  z-index: 1; /* Default z-index for blocks */
+}
+
 /* Red outline for last moved block */
 .summary-game-area .block.highlighted {
   border: 3px solid red;
   box-sizing: border-box;
-  z-index: 10;
+  z-index: 20; /* Higher z-index for highlighted block */
 }
 
-/* Ensure blocks don't overlap - give each block proper z-index based on ID */
-.summary-game-area .block {
-  z-index: 1;
+/* Responsive block sizing for different screen sizes */
+@media (min-width: 1400px) {
+  .summary-game-area .block {
+    width: clamp(60px, 6vh, 80px);
+    height: clamp(60px, 6vh, 80px);
+  }
 }
 
-.summary-game-area .block.highlighted {
-  z-index: 20;
+@media (max-width: 768px) {
+  .summary-game-area .block {
+    width: clamp(45px, 5.5vh, 70px);
+    height: clamp(45px, 5.5vh, 70px);
+  }
 }
 
 .summary-stats {
