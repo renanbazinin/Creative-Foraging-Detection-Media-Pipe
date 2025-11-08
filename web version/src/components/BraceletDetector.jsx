@@ -267,11 +267,13 @@ function BraceletDetector() {
         dbg('Error enumerating cameras:', e);
       }
     };
+    
+    // Always enumerate cameras on mount
     enumerateCameras();
     
     if (ENABLE_DETECTOR) {
       dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform, 'Visibility:', document.visibilityState);
-      requestCameraPermission();
+      // Camera permission will be requested by useEffect when selectedCamera is set
     }
 
     // Load existing calibrations
@@ -339,6 +341,16 @@ function BraceletDetector() {
   useEffect(() => { calibrationARef.current = calibrationA; }, [calibrationA]);
   useEffect(() => { calibrationBRef.current = calibrationB; }, [calibrationB]);
   useEffect(() => { detectorSettingsRef.current = detectorSettings; }, [detectorSettings]);
+
+  // Request camera when selectedCamera changes (after enumeration or user selection)
+  const hasInitializedCamera = useRef(false);
+  useEffect(() => {
+    if (ENABLE_DETECTOR && selectedCamera && !hasInitializedCamera.current) {
+      hasInitializedCamera.current = true;
+      dbg('Selected camera is set, requesting camera permission with:', selectedCamera);
+      requestCameraPermission();
+    }
+  }, [selectedCamera, requestCameraPermission]);
 
   // Log every second
   useEffect(() => {
