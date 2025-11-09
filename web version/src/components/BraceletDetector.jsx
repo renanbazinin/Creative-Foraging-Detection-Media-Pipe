@@ -34,7 +34,7 @@ const LS_KEYS = {
   selectedCamera: 'detectorSelectedCamera',
 };
 
-function BraceletDetector() {
+function BraceletDetector({ hidden = false }) {
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const handsRef = useRef(null);
@@ -74,9 +74,22 @@ function BraceletDetector() {
 
   // Camera device selection
   const [availableDevices, setAvailableDevices] = useState([]);
+  const availableDevicesRef = useRef([]);
   const [selectedCamera, setSelectedCamera] = useState(() => {
     return localStorage.getItem(LS_KEYS.selectedCamera) || '';
   });
+  const refreshCameraList = useCallback(async () => {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      const videoDevices = devices.filter(d => d.kind === 'videoinput');
+      setAvailableDevices(videoDevices);
+      availableDevicesRef.current = videoDevices;
+      return videoDevices;
+    } catch (e) {
+      dbg('Error enumerating cameras:', e);
+      return [];
+    }
+  }, []);
 
   // Removed duplicate dbg definition; using top-level dbg constant instead.
 
@@ -86,7 +99,7 @@ function BraceletDetector() {
     dbg('Removing video event listeners (if any were attached).');
   }, [dbg]);
 
-  const requestCameraPermission = useCallback(async () => {
+  const requestCameraPermission = useCallback(async (cameraIdOverride = null) => {
     const video = videoRef.current;
     if (!video) return;
 
@@ -102,18 +115,19 @@ function BraceletDetector() {
     const myRequestId = ++requestIdRef.current;
     initializedForRequestRef.current = null;
 
+    const cameraId = cameraIdOverride !== null ? cameraIdOverride : selectedCamera;
     dbg('Requesting getUserMedia...');
     try {
       // Use selected camera if available, otherwise use default
-      const constraints = selectedCamera 
-        ? { video: { deviceId: { exact: selectedCamera } } }
+      const constraints = cameraId 
+        ? { video: { deviceId: { exact: cameraId } } }
         : { video: true };
       
       // Log which camera we're trying to use
-      if (selectedCamera) {
-        const selectedDevice = availableDevices.find(d => d.deviceId === selectedCamera);
+      if (cameraId) {
+        const selectedDevice = availableDevicesRef.current.find(d => d.deviceId === cameraId);
         console.log('[Detector] 🎥 Loading SELECTED camera:', {
-          deviceId: selectedCamera,
+          deviceId: cameraId,
           label: selectedDevice?.label || 'Unknown',
           source: 'localStorage or user selection'
         });
@@ -191,11 +205,21 @@ function BraceletDetector() {
         dbg('Initializing MediaPipe for request id', myRequestId);
         initializeMediaPipe();
       }
+      if (isMounted.current) {
+        const videoDevices = await refreshCameraList();
+        if (!cameraId || !cameraIdOverride) {
+          const firstWithId = videoDevices.find(d => d.deviceId);
+          if (firstWithId && firstWithId.deviceId && firstWithId.deviceId !== selectedCamera) {
+            setSelectedCamera(firstWithId.deviceId);
+            localStorage.setItem(LS_KEYS.selectedCamera, firstWithId.deviceId);
+          }
+        }
+      }
     } catch (error) {
       console.error('[Detector] Error accessing camera:', error);
       dbg('getUserMedia error:', error.name, error.message);
     }
-  }, [dbg, removeVideoEventListeners]);
+  }, [dbg, refreshCameraList, removeVideoEventListeners, selectedCamera]);
 
 
   // Convert OpenCV-style HSV (H:0-180, S:0-255, V:0-255) to CSS rgb()
@@ -230,53 +254,7 @@ function BraceletDetector() {
   };
   useEffect(() => {
     isMounted.current = true;
-    
-    // Enumerate available cameras
-    const enumerateCameras = async () => {
-      try {
-        const devices = await navigator.mediaDevices.enumerateDevices();
-        const videoDevices = devices.filter(d => d.kind === 'videoinput');
-        setAvailableDevices(videoDevices);
-        
-        // Check if saved camera still exists
-        const savedCamera = localStorage.getItem(LS_KEYS.selectedCamera);
-        const cameraExists = savedCamera && videoDevices.some(d => d.deviceId === savedCamera);
-        
-        if (cameraExists) {
-          // Saved camera exists, use it
-          const savedDevice = videoDevices.find(d => d.deviceId === savedCamera);
-          setSelectedCamera(savedCamera);
-          console.log('[Detector] 💾 Found saved camera in localStorage:', {
-            deviceId: savedCamera,
-            label: savedDevice?.label || 'Unknown'
-          });
-          dbg('Using saved camera:', savedCamera);
-        } else if (videoDevices.length > 0) {
-          // Saved camera doesn't exist or no camera was saved, use first available (default)
-          const defaultCamera = videoDevices[0].deviceId;
-          setSelectedCamera(defaultCamera);
-          localStorage.setItem(LS_KEYS.selectedCamera, defaultCamera);
-          console.log('[Detector] 🔧 No saved camera found, using system default:', {
-            deviceId: defaultCamera,
-            label: videoDevices[0].label || 'Unknown',
-            savedCameraWas: savedCamera || 'none'
-          });
-          dbg('Saved camera not found, using default camera:', defaultCamera);
-        }
-      } catch (e) {
-        dbg('Error enumerating cameras:', e);
-      }
-    };
-    
-    // Always enumerate cameras on mount
-    enumerateCameras();
-    
-    if (ENABLE_DETECTOR) {
-      dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform, 'Visibility:', document.visibilityState);
-      // Camera permission will be requested by useEffect when selectedCamera is set
-    }
 
-    // Load existing calibrations
     const loadCalibs = () => {
       try {
         const a = JSON.parse(localStorage.getItem('calibrationA') || 'null');
@@ -287,9 +265,7 @@ function BraceletDetector() {
         dbg('No existing calibrations');
       }
     };
-    loadCalibs();
 
-    // React to changes from calibration page (storage events fire across tabs/origin)
     const onStorage = (ev) => {
       if (!ev || !ev.key) return;
       if (['calibrationA', 'calibrationB'].includes(ev.key)) {
@@ -305,12 +281,60 @@ function BraceletDetector() {
         }));
       }
     };
+
+    const initializeCameras = async () => {
+      const videoDevices = await refreshCameraList();
+      if (!isMounted.current) return;
+
+      const savedCamera = localStorage.getItem(LS_KEYS.selectedCamera);
+      let chosenCameraId = '';
+
+      if (savedCamera && videoDevices.some(d => d.deviceId && d.deviceId === savedCamera)) {
+        const savedDevice = videoDevices.find(d => d.deviceId === savedCamera);
+        chosenCameraId = savedCamera;
+        console.log('[Detector] 💾 Found saved camera in localStorage:', {
+          deviceId: savedCamera,
+          label: savedDevice?.label || 'Unknown'
+        });
+        dbg('Using saved camera:', savedCamera);
+      } else {
+        if (savedCamera) {
+          localStorage.removeItem(LS_KEYS.selectedCamera);
+        }
+        const firstWithId = videoDevices.find(d => d.deviceId);
+        if (firstWithId && firstWithId.deviceId) {
+          chosenCameraId = firstWithId.deviceId;
+          localStorage.setItem(LS_KEYS.selectedCamera, firstWithId.deviceId);
+          console.log('[Detector] 🔧 No saved camera found, using system default:', {
+            deviceId: firstWithId.deviceId,
+            label: firstWithId.label || 'Unknown',
+            savedCameraWas: savedCamera || 'none'
+          });
+          dbg('Saved camera not found, using default camera:', firstWithId.deviceId);
+        } else {
+          console.log('[Detector] ⚠️ No camera identifiers available yet (likely awaiting permission).');
+        }
+      }
+
+      if (chosenCameraId) {
+        setSelectedCamera(prev => (prev === chosenCameraId ? prev : chosenCameraId));
+      } else {
+        setSelectedCamera(prev => prev || '');
+      }
+
+      loadCalibs();
+    };
+
+    initializeCameras();
     window.addEventListener('storage', onStorage);
+
+    if (ENABLE_DETECTOR) {
+      dbg('Mounting detector. UA:', navigator.userAgent, 'Platform:', navigator.platform, 'Visibility:', document.visibilityState);
+    }
 
     return () => {
       isMounted.current = false;
       dbg('Cleanup: Component unmounting.');
-      // Invalidate any in-flight requests
       requestIdRef.current += 1;
       initializedForRequestRef.current = null;
       if (cameraRef.current) {
@@ -335,7 +359,8 @@ function BraceletDetector() {
       }
       window.removeEventListener('storage', onStorage);
     };
-  }, [requestCameraPermission, removeVideoEventListeners, dbg]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Keep refs in sync with state so onResults sees latest values
   useEffect(() => { calibrationARef.current = calibrationA; }, [calibrationA]);
@@ -344,10 +369,10 @@ function BraceletDetector() {
 
   // Request camera when selectedCamera changes (after enumeration or user selection)
   useEffect(() => {
-    if (ENABLE_DETECTOR && selectedCamera) {
-      dbg('Selected camera changed, requesting camera permission with:', selectedCamera);
-      requestCameraPermission();
-    }
+    if (!ENABLE_DETECTOR) return;
+    const label = selectedCamera ? selectedCamera : 'default system camera';
+    dbg('Selected camera changed, requesting camera permission with:', label);
+    requestCameraPermission(selectedCamera || null);
   }, [selectedCamera, requestCameraPermission]);
 
   // Log every second
@@ -720,8 +745,12 @@ function BraceletDetector() {
 
   const handleCameraChange = (deviceId) => {
     setSelectedCamera(deviceId);
-    localStorage.setItem(LS_KEYS.selectedCamera, deviceId);
-    dbg('Camera selection saved to localStorage:', deviceId);
+    if (deviceId) {
+      localStorage.setItem(LS_KEYS.selectedCamera, deviceId);
+    } else {
+      localStorage.removeItem(LS_KEYS.selectedCamera);
+    }
+    dbg('Camera selection saved to localStorage:', deviceId || 'default');
   };
 
   const downloadLogs = () => {
@@ -752,7 +781,10 @@ function BraceletDetector() {
 
   return (
     <>
-    <div className={`detector-window ${isMinimized ? 'minimized' : ''}`}>
+    <div
+      className={`detector-window ${isMinimized ? 'minimized' : ''}`}
+      style={hidden ? { opacity: 0, pointerEvents: 'none', visibility: 'hidden' } : undefined}
+    >
       <div className="detector-header">
         <span>Bracelet Detector</span>
         <div className="detector-controls">
@@ -772,11 +804,19 @@ function BraceletDetector() {
               onChange={(e) => handleCameraChange(e.target.value)}
               style={{ fontSize: 11, padding: '3px 6px', flex: 1, maxWidth: 200 }}
             >
-              {availableDevices.map(dev => (
-                <option key={dev.deviceId} value={dev.deviceId}>
-                  {dev.label || `Camera ${dev.deviceId.slice(0, 8)}`}
-                </option>
-              ))}
+              <option value="">System Default</option>
+              {availableDevices.map((dev, idx) => {
+                const hasId = !!dev.deviceId;
+                const optionValue = hasId ? dev.deviceId : '';
+                const key = hasId ? dev.deviceId : `camera-${idx}`;
+                const labelBase = dev.label?.trim() || `Camera ${idx + 1}`;
+                const idSuffix = hasId ? ` • ${dev.deviceId.slice(0, 8)}` : ' (needs permission)';
+                return (
+                  <option key={key} value={optionValue} disabled={!hasId}>
+                    {labelBase}{idSuffix}
+                  </option>
+                );
+              })}
             </select>
           </div>
           <video
