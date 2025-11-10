@@ -1,20 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Summary from './Summary';
+import { getApiBaseUrl } from '../config/api.config';
 import './Admin.css';
 
-const resolveApiBaseUrl = () => {
-  try {
-    const base = import.meta?.env?.VITE_API_BASE_URL;
-    if (base) {
-      return base.replace(/\/$/, '');
-    }
-  } catch (error) {
-    console.warn('[Admin] Unable to read VITE_API_BASE_URL, using default.', error);
-  }
-  return 'http://localhost:4000/api';
-};
-
-const API_BASE_URL = resolveApiBaseUrl();
+const API_BASE_URL = getApiBaseUrl();
 
 const transformSessionToGameData = (session) => {
   if (!session) return null;
@@ -73,6 +62,8 @@ const formatDate = (value) => {
   return value;
 };
 
+const ADMIN_PASSWORD_KEY = 'adminPassword';
+
 function Admin() {
   const [sessions, setSessions] = useState([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -82,17 +73,50 @@ function Admin() {
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState(null);
   const [isExperimentOnly, setIsExperimentOnly] = useState(false);
+  const [password, setPassword] = useState('');
+  const [passwordError, setPasswordError] = useState(false);
+
+  // Load password from localStorage on mount
+  useEffect(() => {
+    const savedPassword = localStorage.getItem(ADMIN_PASSWORD_KEY);
+    if (savedPassword) {
+      setPassword(savedPassword);
+    }
+  }, []);
 
   const fetchSessions = useCallback(async () => {
+    if (!password) {
+      setSessionsError('Password required');
+      setSessionsLoading(false);
+      return;
+    }
+
     setSessionsLoading(true);
     setSessionsError(null);
+    setPasswordError(false);
+    
     try {
-      const response = await fetch(`${API_BASE_URL}/sessions`);
+      const response = await fetch(`${API_BASE_URL}/sessions`, {
+        headers: {
+          'x-admin-password': password
+        }
+      });
+      
+      if (response.status === 401 || response.status === 403) {
+        setPasswordError(true);
+        throw new Error('Invalid password');
+      }
+      
       if (!response.ok) {
         throw new Error(`Failed to load sessions (${response.status})`);
       }
+      
       const data = await response.json();
       const sessionList = Array.isArray(data) ? data : [];
+      
+      // Save password to localStorage on successful request
+      localStorage.setItem(ADMIN_PASSWORD_KEY, password);
+      
       setSessions(sessionList);
       setSelectedSessionId((prev) => {
         if (prev && sessionList.some((session) => session.sessionGameId === prev)) {
@@ -108,7 +132,7 @@ function Admin() {
     } finally {
       setSessionsLoading(false);
     }
-  }, []);
+  }, [password]);
 
   useEffect(() => {
     fetchSessions();
@@ -123,10 +147,16 @@ function Admin() {
     let cancelled = false;
 
     const fetchSessionDetail = async () => {
+      if (!password) return;
+      
       setSessionLoading(true);
       setSessionError(null);
       try {
-        const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(selectedSessionId)}`);
+        const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(selectedSessionId)}`, {
+          headers: {
+            'x-admin-password': password
+          }
+        });
         if (!response.ok) {
           if (response.status === 404) {
             throw new Error('Session not found');
@@ -163,7 +193,7 @@ function Admin() {
   };
 
   const toggleExperimentOnly = async () => {
-    if (!selectedSessionId) return;
+    if (!selectedSessionId || !password) return;
     
     const newMode = !isExperimentOnly;
     setIsExperimentOnly(newMode);
@@ -175,7 +205,11 @@ function Admin() {
         ? `${API_BASE_URL}/sessions/${encodeURIComponent(selectedSessionId)}/experiment-only`
         : `${API_BASE_URL}/sessions/${encodeURIComponent(selectedSessionId)}`;
         
-      const response = await fetch(endpoint);
+      const response = await fetch(endpoint, {
+        headers: {
+          'x-admin-password': password
+        }
+      });
       if (!response.ok) {
         throw new Error(`Failed to load session data (${response.status})`);
       }
@@ -197,7 +231,7 @@ function Admin() {
   };
 
   const handlePlayerUpdate = async (moveId, newPlayer) => {
-    if (!selectedSessionId || !moveId) return;
+    if (!selectedSessionId || !moveId || !password) return;
 
     try {
       const response = await fetch(
@@ -205,7 +239,8 @@ function Admin() {
         {
           method: 'PATCH',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-admin-password': password
           },
           body: JSON.stringify({ player: newPlayer })
         }
@@ -238,9 +273,23 @@ function Admin() {
       <aside className="admin-sidebar">
         <div className="admin-sidebar-header">
           <h1>Admin</h1>
-          <button className="admin-refresh-button" onClick={fetchSessions} disabled={sessionsLoading}>
-            {sessionsLoading ? 'Refreshing…' : 'Refresh'}
-          </button>
+          <div className="admin-password-row">
+            <input
+              type="password"
+              className={`admin-password-input ${passwordError ? 'error' : ''}`}
+              placeholder="Password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  fetchSessions();
+                }
+              }}
+            />
+            <button className="admin-refresh-button" onClick={fetchSessions} disabled={sessionsLoading || !password}>
+              {sessionsLoading ? 'Refreshing…' : 'Refresh'}
+            </button>
+          </div>
         </div>
         {sessionsError && <div className="admin-error">{sessionsError}</div>}
         <div className="admin-session-list">

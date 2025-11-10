@@ -4,16 +4,9 @@
  * Also handles server persistence
  */
 
-const GRID_UNIT = 0.035; // Half-step of GRID_STEP (0.07) to represent the playable lattice
+import { getApiBaseUrl } from '../config/api.config.js';
 
-const resolveApiBaseUrl = () => {
-  try {
-    return (import.meta?.env?.VITE_API_BASE_URL) || 'http://localhost:4000/api';
-  } catch (error) {
-    console.warn('[GameTracker] Unable to read VITE_API_BASE_URL, falling back to default.');
-    return 'http://localhost:4000/api';
-  }
-};
+const GRID_UNIT = 0.035; // Half-step of GRID_STEP (0.07) to represent the playable lattice
 
 class GameTracker {
   constructor() {
@@ -24,7 +17,7 @@ class GameTracker {
     this.trackingWindow = 1000; // 1 second window for lost tracking
     this.lastKnownPlayer = null; // Track last known player (A or B) for fallback
     this.sessionInfo = null;
-    this.apiBaseUrl = resolveApiBaseUrl();
+    this.apiBaseUrl = getApiBaseUrl();
     this.sessionInitialized = false;
     
     // Listen to bracelet detection status from localStorage or events

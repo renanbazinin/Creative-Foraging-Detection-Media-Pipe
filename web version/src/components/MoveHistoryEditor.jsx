@@ -1,15 +1,9 @@
 import React, { useState, useEffect } from 'react';
+import { getApiBaseUrl } from '../config/api.config';
 import './MoveHistoryEditor.css';
 
-const resolveApiBaseUrl = () => {
-  try {
-    return (import.meta?.env?.VITE_API_BASE_URL) || 'http://localhost:4000/api';
-  } catch (error) {
-    return 'http://localhost:4000/api';
-  }
-};
-
-const API_BASE_URL = resolveApiBaseUrl();
+const API_BASE_URL = getApiBaseUrl();
+const ADMIN_PASSWORD_KEY = 'adminPassword';
 
 const formatNumber = (value, decimals = 2) => {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
@@ -25,18 +19,33 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [selectedMove, setSelectedMove] = useState(null);
   const [expandedImage, setExpandedImage] = useState(null);
   const [filterPhase, setFilterPhase] = useState('all');
+  const [password, setPassword] = useState('');
+
+  // Load password from localStorage
+  useEffect(() => {
+    const savedPassword = localStorage.getItem(ADMIN_PASSWORD_KEY);
+    if (savedPassword) {
+      setPassword(savedPassword);
+    }
+  }, []);
 
   useEffect(() => {
-    if (sessionGameId) {
+    if (sessionGameId && password) {
       loadSession();
     }
-  }, [sessionGameId]);
+  }, [sessionGameId, password]);
 
   const loadSession = async () => {
+    if (!password) return;
+    
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(sessionGameId)}`);
+      const response = await fetch(`${API_BASE_URL}/sessions/${encodeURIComponent(sessionGameId)}`, {
+        headers: {
+          'x-admin-password': password
+        }
+      });
       if (!response.ok) {
         throw new Error(`Failed to load session (${response.status})`);
       }
@@ -51,7 +60,7 @@ function MoveHistoryEditor({ sessionGameId }) {
   };
 
   const handlePlayerUpdate = async (moveId, newPlayer) => {
-    if (!sessionGameId || !moveId) return;
+    if (!sessionGameId || !moveId || !password) return;
 
     try {
       const response = await fetch(
@@ -59,7 +68,8 @@ function MoveHistoryEditor({ sessionGameId }) {
         {
           method: 'PATCH',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            'x-admin-password': password
           },
           body: JSON.stringify({ player: newPlayer })
         }

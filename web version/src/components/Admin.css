@@ -26,19 +26,55 @@
 }
 
 .admin-sidebar-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
   padding-bottom: 16px;
   border-bottom: 1px solid #2a2a2a;
 }
 
 .admin-sidebar-header h1 {
-  margin: 0;
+  margin: 0 0 12px 0;
   font-size: 28px;
   font-weight: 700;
   color: #4caf50;
+}
+
+.admin-password-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.admin-password-input {
+  flex: 1;
+  padding: 9px 12px;
+  background: #1f1f1f;
+  color: #fff;
+  border: 1px solid #3a3a3a;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: Arial, sans-serif;
+  transition: all 0.2s ease;
+}
+
+.admin-password-input:focus {
+  outline: none;
+  border-color: #4caf50;
+  box-shadow: 0 0 0 2px rgba(76, 175, 80, 0.2);
+}
+
+.admin-password-input.error {
+  border-color: #f44336;
+  animation: shake 0.3s ease;
+}
+
+.admin-password-input::placeholder {
+  color: #666;
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-4px); }
+  75% { transform: translateX(4px); }
 }
 
 .admin-refresh-button {
