@@ -417,6 +417,15 @@ function Summary() {
                   onClick={() => goToMove(index)}
                 >
                   <div className="move-number">{index + 1}</div>
+                  {move.camera_frame && (
+                    <div className="move-camera-frame">
+                      <img 
+                        src={move.camera_frame} 
+                        alt={`Camera frame for move ${index + 1}`}
+                        className="camera-frame-thumbnail"
+                      />
+                    </div>
+                  )}
                   <div className="move-details">
                     <div className="move-type">{move.type}</div>
                     <div className="move-player">Player: {move.player}</div>

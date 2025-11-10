@@ -573,6 +573,9 @@ function BraceletDetector({ hidden = false }) {
     // Expose status to game tracker
     if (typeof window !== 'undefined') {
       window.currentBraceletStatus = detectedStatus;
+      // Expose canvas for frame capture
+      window.braceletDetectorCanvas = canvas;
+      window.braceletDetectorVideo = video;
     }
   };
 

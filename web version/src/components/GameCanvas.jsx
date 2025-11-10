@@ -14,8 +14,9 @@ import {
 
 const BLOCK_SIZE_PX = 60; // pixels
 const GRID_STEP = 0.07;
+const SAVE_CAMERA_FRAMES = false; // Set to true to save camera frame images (base64) in logs
 
-function GameCanvas({ config }) {
+function GameCanvas({ config, interfaceHidden = false }) {
   const [blocks, setBlocks] = useState(createInitialBlocks());
   const [draggedBlock, setDraggedBlock] = useState(null);
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
@@ -166,6 +167,64 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     );
   };
 
+  // Capture camera frame with reduced quality
+  const captureCameraFrame = () => {
+    // Skip capturing if disabled
+    if (!SAVE_CAMERA_FRAMES) {
+      return null;
+    }
+    
+    try {
+      // Try to get canvas from BraceletDetector (preferred - has processed frame)
+      const detectorCanvas = window.braceletDetectorCanvas;
+      const detectorVideo = window.braceletDetectorVideo;
+      
+      let sourceElement = null;
+      if (detectorCanvas && detectorCanvas.width > 0 && detectorCanvas.height > 0) {
+        sourceElement = detectorCanvas;
+      } else if (detectorVideo && detectorVideo.videoWidth > 0 && detectorVideo.videoHeight > 0) {
+        sourceElement = detectorVideo;
+      }
+      
+      if (!sourceElement) {
+        console.warn('[GameCanvas] No camera source available for frame capture');
+        return null;
+      }
+      
+      // Create a temporary canvas for resizing and quality reduction
+      const tempCanvas = document.createElement('canvas');
+      const maxWidth = 640; // Reduce resolution to save space
+      const maxHeight = 480;
+      
+      let width = sourceElement.videoWidth || sourceElement.width;
+      let height = sourceElement.videoHeight || sourceElement.height;
+      
+      // Calculate scaled dimensions maintaining aspect ratio
+      const aspectRatio = width / height;
+      if (width > maxWidth) {
+        width = maxWidth;
+        height = width / aspectRatio;
+      }
+      if (height > maxHeight) {
+        height = maxHeight;
+        width = height * aspectRatio;
+      }
+      
+      tempCanvas.width = Math.floor(width);
+      tempCanvas.height = Math.floor(height);
+      const tempCtx = tempCanvas.getContext('2d');
+      
+      // Draw source to temp canvas (scaled down)
+      tempCtx.drawImage(sourceElement, 0, 0, tempCanvas.width, tempCanvas.height);
+      
+      // Convert to JPEG with reduced quality (0.6 = 60% quality)
+      return tempCanvas.toDataURL('image/jpeg', 0.6);
+    } catch (error) {
+      console.error('[GameCanvas] Error capturing camera frame:', error);
+      return null;
+    }
+  };
+
   const handleMouseUp = () => {
     if (draggedBlock === null) return;
 
@@ -185,6 +244,10 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
         : b
     );
 
+    // Capture camera frame for this move
+    const cameraFrame = captureCameraFrame();
+    const currentPlayer = window.currentBraceletStatus || 'Unknown';
+
     // Log the move to CSV with the final snapped position and updated all_positions
     const logEntry = {
       date: config.date,
@@ -198,12 +261,14 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       all_positions: updatedBlocks.map(b => b.position), // All positions after snap
       gallery_shape_number: null,
       gallery: null,
-      gallery_normalized: null
+      gallery_normalized: null,
+      camera_frame: cameraFrame, // Add camera frame image
+      player: currentPlayer // Add current player
     };
     loggerRef.current.write(logEntry);
 
-    // Also log to game tracker with player attribution
-    gameTrackerRef.current.recordMove(logEntry, holdTime);
+    // Also log to game tracker with player attribution and camera frame
+    gameTrackerRef.current.recordMove(logEntry, holdTime, cameraFrame);
 
     setBlocks(prevBlocks => {
       const updated = prevBlocks.map(b =>
@@ -223,6 +288,10 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const normalizedPos = resetPositions(positions);
     const newGalleryNum = galleryNumber + 1;
 
+    // Capture camera frame for this gallery save
+    const cameraFrame = captureCameraFrame();
+    const currentPlayer = window.currentBraceletStatus || 'Unknown';
+
     // Log to CSV
     const logEntry = {
       date: config.date,
@@ -236,12 +305,14 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       all_positions: null,
       gallery_shape_number: newGalleryNum,
       gallery: positions,
-      gallery_normalized: normalizedPos
+      gallery_normalized: normalizedPos,
+      camera_frame: cameraFrame, // Add camera frame image
+      player: currentPlayer // Add current player
     };
     loggerRef.current.write(logEntry);
 
-    // Also log to game tracker
-    gameTrackerRef.current.recordMove(logEntry, 0);
+    // Also log to game tracker with camera frame
+    gameTrackerRef.current.recordMove(logEntry, 0, cameraFrame);
 
     // Create canvas screenshot
     const screenshot = captureCanvas();
@@ -341,6 +412,10 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     setShowMessage(false);
   };
 
+  const handleContextMenu = (e) => {
+    e.preventDefault(); // Disable right-click context menu
+  };
+
   return (
     <div 
       className="game-canvas" 
@@ -351,6 +426,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       onTouchMove={handleMouseMove}
       onTouchEnd={handleMouseUp}
       onTouchCancel={handleMouseUp}
+      onContextMenu={handleContextMenu}
     >
       {/* Gallery */}
       <div className="gallery" onClick={handleGalleryClick}>
@@ -363,8 +439,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
         </div>
       </div>
 
-      {/* Timer (only show in experiment phase) */}
-      {!isPractice && (
+      {/* Timer (only show in experiment phase and when interface is not hidden) */}
+      {!isPractice && !interfaceHidden && (
         <div className="timer">
           Time: {Math.floor(timeRemaining / 60)}:{(timeRemaining % 60).toString().padStart(2, '0')}
         </div>
