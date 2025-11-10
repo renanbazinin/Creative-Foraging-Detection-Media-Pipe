@@ -8,8 +8,13 @@ import {
   resetPositions
 } from '../utils/gameLogic';
 
-function Summary() {
-  const [gameData, setGameData] = useState(null);
+function Summary({
+  initialData = null,
+  title = 'Game Summary',
+  enableFileUpload = true,
+  className = ''
+}) {
+  const [gameData, setGameData] = useState(initialData);
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
@@ -20,6 +25,8 @@ function Summary() {
   const fileInputRef = useRef(null);
   const playbackIntervalRef = useRef(null);
   const canvasRef = useRef(null);
+  const allowFileUpload = enableFileUpload && !initialData;
+  const containerClassName = ['summary-container', className].filter(Boolean).join(' ');
 
   const relativeToPixel = (relative, dimension) => {
     const canvas = canvasRef.current;
@@ -28,8 +35,9 @@ function Summary() {
     return (relative + 0.5) * height;
   };
 
-  const applyMovesUpTo = useCallback((targetIndex) => {
-    if (!gameData) return;
+  const applyMovesUpTo = useCallback((targetIndex, sourceData = null) => {
+    const data = sourceData || gameData;
+    if (!data) return;
 
     // Start from initial state
     let currentBlocks = createInitialBlocks();
@@ -38,8 +46,8 @@ function Summary() {
     let lastMovedBlock = null;
 
     // Apply all moves up to targetIndex
-    for (let i = 0; i <= targetIndex && i < gameData.moves.length; i++) {
-      const move = gameData.moves[i];
+    for (let i = 0; i <= targetIndex && i < data.moves.length; i++) {
+      const move = data.moves[i];
       
       // Update phase if needed
       if (move.phase === 'experiment' && currentIsPractice) {
@@ -115,7 +123,7 @@ function Summary() {
     setIsPlaying(false);
     // Apply initial state (no moves applied yet)
     setTimeout(() => {
-      applyMovesUpTo(0);
+      applyMovesUpTo(0, data);
     }, 0);
   };
 
@@ -127,6 +135,7 @@ function Summary() {
   };
 
   const handleFileUpload = (e) => {
+    if (!allowFileUpload) return;
     const file = e.target.files[0];
     if (!file) return;
 
@@ -143,17 +152,10 @@ function Summary() {
   };
 
   useEffect(() => {
-    // Try to load from localStorage on mount
-    const savedData = localStorage.getItem('lastGameSession');
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData);
-        loadGameData(parsed);
-      } catch (e) {
-        console.error('Failed to load saved game data:', e);
-      }
+    if (initialData) {
+      loadGameData(initialData);
     }
-  }, []);
+  }, [initialData]);
 
   // Apply current move when gameData or currentMoveIndex changes
   useEffect(() => {
@@ -238,24 +240,27 @@ function Summary() {
   }, [playbackSpeed]);
 
   if (!gameData) {
-    return (
-      <div className="summary-container">
-        <div className="summary-upload">
-          <h1>Game Summary</h1>
-          <p>Load a game session JSON file to view the replay</p>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".json"
-            onChange={handleFileUpload}
-            style={{ display: 'none' }}
-          />
-          <button onClick={() => fileInputRef.current?.click()}>
-            Load JSON File
-          </button>
+    if (allowFileUpload) {
+      return (
+        <div className={containerClassName}>
+          <div className="summary-upload">
+            <h1>{title}</h1>
+            <p>Load a game session JSON file to view the replay</p>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json"
+              onChange={handleFileUpload}
+              style={{ display: 'none' }}
+            />
+            <button onClick={() => fileInputRef.current?.click()}>
+              Load JSON File
+            </button>
+          </div>
         </div>
-      </div>
-    );
+      );
+    }
+    return null;
   }
 
   const currentMove = gameData.moves[currentMoveIndex];
@@ -263,11 +268,86 @@ function Summary() {
   const movesByPlayer = gameData.summary?.movesByPlayer || {};
 
   const movesByPlayerEntries = Object.entries(movesByPlayer || {});
+  const formatNumber = (value, decimals = 1) => {
+    if (Number.isFinite(value)) {
+      return value.toFixed(decimals);
+    }
+    return '—';
+  };
+
+
+  const sessionInfoData = gameData.sessionInfo || {};
+  const participantId =
+    sessionInfoData.subjectId ||
+    sessionInfoData.id ||
+    gameData.subjectId ||
+    gameData.id ||
+    null;
+  const sessionId =
+    sessionInfoData.sessionGameId ||
+    gameData.sessionGameId ||
+    participantId ||
+    null;
+  const condition =
+    sessionInfoData.condition ||
+    gameData.condition ||
+    null;
+  const startTimeValue =
+    gameData.startTime ||
+    sessionInfoData.startedAt ||
+    sessionInfoData.date ||
+    null;
+  const endTimeValue =
+    gameData.endTime ||
+    sessionInfoData.endedAt ||
+    null;
+
+  const formatDateTime = (value) => {
+    if (!value) return null;
+    try {
+      const date = new Date(value);
+      if (!Number.isNaN(date.getTime())) {
+        return date.toLocaleString();
+      }
+    } catch (error) {
+      // ignore parse errors
+    }
+    return value;
+  };
+
+  const headerItems = [];
+  if (sessionId) {
+    headerItems.push({ label: 'Session ID', value: sessionId });
+  }
+  if (participantId && participantId !== sessionId) {
+    headerItems.push({ label: 'Participant', value: participantId });
+  }
+  if (condition) {
+    headerItems.push({ label: 'Condition', value: condition });
+  }
+  const formattedStart = formatDateTime(startTimeValue);
+  if (formattedStart) {
+    headerItems.push({ label: 'Start', value: formattedStart });
+  }
+  const formattedEnd = formatDateTime(endTimeValue);
+  if (formattedEnd) {
+    headerItems.push({ label: 'End', value: formattedEnd });
+  }
 
   return (
-    <div className="summary-container">
+    <div className={containerClassName}>
       <div className="summary-header">
-        <h1>Game Summary</h1>
+        <h1>{title}</h1>
+        {headerItems.length > 0 && (
+          <div className="summary-session-info">
+            {headerItems.map((item) => (
+              <div key={`${item.label}-${item.value}`} className="summary-session-info-item">
+                <span className="summary-session-info-label">{item.label}</span>
+                <span className="summary-session-info-value">{item.value}</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="summary-main">
@@ -318,7 +398,7 @@ function Summary() {
             </div>
           </div>
 
-          <div className="summary-progress">
+            <div className="summary-progress">
             <input
               type="range"
               min="0"
@@ -332,9 +412,9 @@ function Summary() {
               {currentMove && (
                 <span className="move-info">
                   {' '}• Player: {currentMove.player}
-                  {currentMove.position && ` • Position: (${currentMove.position[0]}, ${currentMove.position[1]})`}
-                  {currentMove.holdTime !== undefined && ` • Hold: ${currentMove.holdTime.toFixed(2)}s`}
-                  {' '}• Time: {currentMove.elapsed.toFixed(1)}s
+                  {Array.isArray(currentMove.position) && currentMove.position.length === 2 && ` • Position: (${currentMove.position[0]}, ${currentMove.position[1]})`}
+                  {Number.isFinite(currentMove.holdTime) && ` • Hold: ${formatNumber(currentMove.holdTime, 2)}s`}
+                  {' '}• Time: {formatNumber(currentMove.elapsed, 1)}s
                 </span>
               )}
             </div>
@@ -395,16 +475,20 @@ function Summary() {
               />
               <span>{playbackSpeed}x</span>
             </div>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".json"
-              onChange={handleFileUpload}
-              style={{ display: 'none' }}
-            />
-            <button onClick={() => fileInputRef.current?.click()}>
-              📁 Load New File
-            </button>
+            {allowFileUpload && (
+              <>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json"
+                  onChange={handleFileUpload}
+                  style={{ display: 'none' }}
+                />
+                <button onClick={() => fileInputRef.current?.click()}>
+                  📁 Load New File
+                </button>
+              </>
+            )}
           </div>
 
           <div className="summary-moves-list">
@@ -432,13 +516,13 @@ function Summary() {
                     {(move.blockId !== null && move.blockId !== undefined) || (move.unit !== null && move.unit !== undefined) ? (
                       <div className="move-unit">Block: {move.blockId !== undefined ? move.blockId : move.unit}</div>
                     ) : null}
-                    {move.position && (
-                      <div className="move-position">Position: ({move.position[0]}, {move.position[1]})</div>
-                    )}
-                    {move.holdTime !== undefined && move.holdTime > 0 && (
-                      <div className="move-hold-time">Hold Time: {move.holdTime.toFixed(2)}s</div>
-                    )}
-                    <div className="move-time">Time: {move.elapsed.toFixed(1)}s</div>
+                  {Array.isArray(move.position) && move.position.length === 2 && (
+                    <div className="move-position">Position: ({move.position[0]}, {move.position[1]})</div>
+                  )}
+                  {Number.isFinite(move.holdTime) && move.holdTime > 0 && (
+                    <div className="move-hold-time">Hold Time: {formatNumber(move.holdTime, 2)}s</div>
+                  )}
+                  <div className="move-time">Time: {formatNumber(move.elapsed, 1)}s</div>
                   </div>
                 </div>
               ))}

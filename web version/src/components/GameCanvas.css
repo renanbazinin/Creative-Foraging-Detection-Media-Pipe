@@ -5,78 +5,22 @@
   position: relative;
   overflow: hidden;
   user-select: none;
-  touch-action: none; /* Prevent default touch behaviors */
-  padding-bottom: 120px; /* Bottom margin to prevent blocks from interfering with gallery */
+  touch-action: none;
+  padding-bottom: var(--bottom-padding, 120px);
   box-sizing: border-box;
 }
 
 .block {
   position: absolute;
-  /* Block size scales with the smaller dimension of the viewport (canvas size) */
-  width: calc(min(100vw, 100vh) * 0.06);
-  height: calc(min(100vw, 100vh) * 0.06);
+  width: clamp(32px, var(--block-size, 60px), 100px);
+  height: clamp(32px, var(--block-size, 60px), 100px);
   background-color: green;
   transform: translate(-50%, -50%);
-  transition: background-color 0.3s;
+  transition: background-color 0.3s, transform 0.1s ease;
   pointer-events: auto;
   z-index: 5;
-  /* Ensure minimum touch target size for accessibility */
-  min-width: 40px;
-  min-height: 40px;
-  max-width: 80px;
-  max-height: 80px;
-}
-
-/* Desktop and larger screens */
-@media (min-width: 1200px) {
-  .block {
-    width: calc(min(100vw, 100vh) * 0.055);
-    height: calc(min(100vw, 100vh) * 0.055);
-    min-width: 50px;
-    min-height: 50px;
-  }
-}
-
-/* Tablets and medium screens */
-@media (min-width: 768px) and (max-width: 1199px) {
-  .block {
-    width: calc(min(100vw, 100vh) * 0.06);
-    height: calc(min(100vw, 100vh) * 0.06);
-    min-width: 45px;
-    min-height: 45px;
-  }
-}
-
-/* Mobile devices landscape */
-@media (max-width: 767px) and (orientation: landscape) {
-  .block {
-    width: calc(min(100vw, 100vh) * 0.065);
-    height: calc(min(100vw, 100vh) * 0.065);
-    min-width: 42px;
-    min-height: 42px;
-  }
-}
-
-/* Mobile devices portrait */
-@media (max-width: 767px) and (orientation: portrait) {
-  .block {
-    width: calc(min(100vw, 100vh) * 0.07);
-    height: calc(min(100vw, 100vh) * 0.07);
-    min-width: 44px;
-    min-height: 44px;
-  }
-}
-
-/* Very small mobile devices */
-@media (max-width: 400px) {
-  .block {
-    width: calc(min(100vw, 100vh) * 0.075);
-    height: calc(min(100vw, 100vh) * 0.075);
-    min-width: 40px;
-    min-height: 40px;
-    max-width: 60px;
-    max-height: 60px;
-  }
+  border-radius: 6px;
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.35);
 }
 
 .block.movable {
@@ -99,7 +43,7 @@
 
 .gallery {
   position: absolute;
-  bottom: clamp(10px, 2vh, 20px);
+  bottom: clamp(12px, calc(var(--bottom-padding, 120px) * 0.4), 140px);
   left: 50%;
   transform: translateX(-50%);
   cursor: pointer;
@@ -108,14 +52,15 @@
 }
 
 .gallery-frame {
-  width: clamp(80px, 10vw, 140px);
-  height: clamp(60px, 7.5vw, 105px);
+  width: clamp(90px, calc(var(--block-size, 60px) * 2.8), 200px);
+  height: clamp(68px, calc(var(--block-size, 60px) * 2.1), 150px);
   background-color: white;
-  border: clamp(2px, 0.4vw, 4px) solid white;
+  border: clamp(3px, calc(var(--block-size, 60px) * 0.1), 6px) solid white;
   display: flex;
   align-items: center;
-  justify-content: space-between; /* Center content with space distribution */
-  box-shadow: 0 4px 10px rgba(255, 255, 255, 0.3);
+  justify-content: center;
+  box-shadow: 0 4px 12px rgba(255, 255, 255, 0.25);
+  border-radius: 10px;
 }
 
 .gallery-image {
@@ -126,7 +71,7 @@
 
 .gallery-placeholder {
   color: #000;
-  font-size: clamp(14px, 1.5vw, 18px);
+  font-size: clamp(15px, 1.6vw, 20px);
   font-weight: bold;
 }
 
@@ -138,62 +83,17 @@
 
 .timer {
   position: absolute;
-  top: clamp(10px, 2vh, 20px);
-  left: clamp(10px, 2vw, 20px);
+  top: clamp(12px, calc(var(--block-size, 60px) * 0.6), 28px);
+  left: clamp(12px, calc(var(--block-size, 60px) * 0.6), 32px);
   color: white;
-  font-size: clamp(16px, 2.5vw, 24px);
-  font-weight: bold;
-  padding: clamp(6px, 1vh, 10px) clamp(12px, 2vw, 20px);
+  font-size: clamp(15px, calc(var(--block-size, 60px) * 0.6), 24px);
+  font-weight: 600;
+  padding: clamp(6px, calc(var(--block-size, 60px) * 0.25), 16px) clamp(12px, calc(var(--block-size, 60px) * 0.4), 28px);
   background-color: rgba(0, 0, 0, 0.7);
-  border: clamp(1px, 0.2vw, 2px) solid white;
-  border-radius: 5px;
+  border: clamp(1px, calc(var(--block-size, 60px) * 0.05), 2px) solid white;
+  border-radius: 8px;
   z-index: 10;
   pointer-events: auto;
-}
-
-/* Mobile specific adjustments */
-@media (max-width: 767px) {
-  .gallery {
-    bottom: 8px;
-    left: 50%;
-    transform: translateX(-50%);
-    right: auto;
-  }
-  
-  .gallery-frame {
-    width: 70px;
-    height: 52px;
-    border: 2px solid white;
-  }
-  
-  .gallery-placeholder {
-    font-size: 12px;
-  }
-  
-  .timer {
-    top: 8px;
-    left: 8px;
-    font-size: 14px;
-    padding: 6px 10px;
-    border: 1px solid white;
-  }
-}
-
-/* Very small mobile devices */
-@media (max-width: 400px) {
-  .gallery-frame {
-    width: 60px;
-    height: 45px;
-  }
-  
-  .gallery-placeholder {
-    font-size: 10px;
-  }
-  
-  .timer {
-    font-size: 12px;
-    padding: 4px 8px;
-  }
 }
 
 .message-overlay {

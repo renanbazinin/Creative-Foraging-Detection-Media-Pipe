@@ -13,6 +13,7 @@ class GameTracker {
     this.isTracking = false;
     this.trackingWindow = 1000; // 1 second window for lost tracking
     this.lastKnownPlayer = null; // Track last known player (A or B) for fallback
+    this.sessionInfo = null;
     
     // Listen to bracelet detection status from localStorage or events
     this.setupBraceletListener();
@@ -83,11 +84,24 @@ class GameTracker {
   /**
    * Start tracking
    */
+  setSessionInfo(info = {}) {
+    this.sessionInfo = {
+      ...info,
+      startedAt: this.sessionInfo?.startedAt || new Date(this.startTime).toISOString()
+    };
+  }
+
+  /**
+   * Start tracking
+   */
   start() {
     this.isTracking = true;
     this.startTime = Date.now();
     this.moves = [];
     this.braceletHistory = [];
+    if (this.sessionInfo) {
+      this.sessionInfo.startedAt = new Date(this.startTime).toISOString();
+    }
   }
 
   /**
@@ -150,6 +164,10 @@ class GameTracker {
       allPositions: allGridPositions, // All block positions as grid coordinates
       phase: moveData.phase,
       type: moveData.type,
+      subjectId: moveData.id,
+      sessionGameId: moveData.sessionGameId,
+      condition: moveData.condition,
+      date: moveData.date,
       // Keep original data for compatibility
       end_position: moveData.end_position,
       all_positions: moveData.all_positions,
@@ -279,6 +297,7 @@ class GameTracker {
       startTime: new Date(this.startTime).toISOString(),
       endTime: new Date().toISOString(),
       duration: (Date.now() - this.startTime) / 1000,
+      sessionInfo: this.sessionInfo,
       moves: this.moves,
       braceletHistory: this.braceletHistory,
       summary: {
@@ -323,7 +342,8 @@ class GameTracker {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `game_session_${new Date().toISOString().split('T')[0]}_${Date.now()}.json`;
+    const baseName = this.sessionInfo?.sessionGameId || this.sessionInfo?.id || 'game_session';
+    link.download = `${baseName}_${new Date().toISOString().split('T')[0]}_${Date.now()}.json`;
     link.click();
     URL.revokeObjectURL(url);
   }

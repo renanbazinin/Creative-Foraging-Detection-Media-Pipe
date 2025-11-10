@@ -1,32 +1,87 @@
 // CSV Logger - Client-side logging with download capability
 
+const resolveApiBaseUrl = () => {
+  try {
+    return (import.meta?.env?.VITE_API_BASE_URL) || 'http://localhost:4000/api';
+  } catch (error) {
+    console.warn('[CSVLogger] Unable to read VITE_API_BASE_URL, falling back to default.');
+    return 'http://localhost:4000/api';
+  }
+};
+
 class CSVLogger {
-  constructor(subjectId) {
-    this.subjectId = subjectId;
+  constructor(config) {
+    this.subjectId = config?.id || '';
+    this.sessionId = config?.sessionGameId || this.subjectId;
+    this.condition = config?.condition;
+    this.date = config?.date;
+    this.timeSeconds = config?.timeSeconds;
     this.logs = [];
     this.header = [
-      'date', 'id', 'condition', 'phase', 'type', 'time', 
-      'unit', 'end_position', 'all_positions', 
+      'date', 'id', 'sessionGameId', 'condition', 'phase', 'type', 'time',
+      'unit', 'end_position', 'all_positions',
       'gallery_shape_number', 'gallery', 'gallery_normalized'
     ];
+    this.apiBaseUrl = resolveApiBaseUrl();
+    this.sessionPromise = this.ensureSession(config);
   }
 
-  write(entry) {
+  async ensureSession(config) {
+    if (!this.sessionId || !this.subjectId) {
+      console.warn('[CSVLogger] Missing session or subject id; skipping server persistence.');
+      return;
+    }
+
+    const payload = {
+      sessionGameId: this.sessionId,
+      subjectId: this.subjectId,
+      condition: this.condition,
+      date: this.date,
+      timeSeconds: this.timeSeconds,
+      metadata: {
+        config
+      }
+    };
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to initialize session (${response.status})`);
+      }
+    } catch (error) {
+      console.error('[CSVLogger] Failed to initialize session on server:', error);
+    }
+  }
+
+  async write(entry) {
     this.logs.push(entry);
-    // Also save to localStorage for persistence
-    this.saveToLocalStorage();
-  }
 
-  saveToLocalStorage() {
-    const key = `creativeForaging_${this.subjectId}`;
-    localStorage.setItem(key, JSON.stringify(this.logs));
-  }
+    if (!this.sessionId) {
+      return;
+    }
 
-  loadFromLocalStorage() {
-    const key = `creativeForaging_${this.subjectId}`;
-    const stored = localStorage.getItem(key);
-    if (stored) {
-      this.logs = JSON.parse(stored);
+    try {
+      await this.sessionPromise;
+      const response = await fetch(`${this.apiBaseUrl}/sessions/${encodeURIComponent(this.sessionId)}/moves`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(entry)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to persist move (${response.status})`);
+      }
+    } catch (error) {
+      console.error('[CSVLogger] Failed to persist move:', error);
     }
   }
 
@@ -55,7 +110,10 @@ class CSVLogger {
     const now = new Date();
     const dateStr = now.toISOString().replace('T', ' ').substring(0, 19);
     link.setAttribute('href', url);
-    link.setAttribute('download', `${this.subjectId} (${dateStr}).csv`);
+    const sessionSuffix = this.sessionId && this.sessionId !== this.subjectId
+      ? `_${this.sessionId}`
+      : '';
+    link.setAttribute('download', `${this.subjectId}${sessionSuffix} (${dateStr}).csv`);
     link.style.visibility = 'hidden';
     document.body.appendChild(link);
     link.click();
@@ -64,8 +122,6 @@ class CSVLogger {
 
   clear() {
     this.logs = [];
-    const key = `creativeForaging_${this.subjectId}`;
-    localStorage.removeItem(key);
   }
 }
 

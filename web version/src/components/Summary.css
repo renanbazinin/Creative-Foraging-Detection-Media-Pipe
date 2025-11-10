@@ -45,6 +45,32 @@
   font-size: 32px;
 }
 
+.summary-session-info {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+}
+
+.summary-session-info-item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.summary-session-info-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #888;
+}
+
+.summary-session-info-value {
+  font-size: 14px;
+  font-weight: 600;
+  color: #fff;
+}
+
 .summary-main {
   display: grid;
   grid-template-columns: 1fr 400px;
@@ -161,20 +187,22 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  padding: 20px;
+  padding: clamp(8px, 2vw, 24px);
   background: #1a1a1a;
   width: 100%;
   box-sizing: border-box;
   position: relative;
+  min-height: 0;
 }
 
 .summary-game-area .game-canvas {
   width: 100%;
-  max-width: min(100vw, 120vh, 900px); /* Match GameCanvas sizing */
+  height: auto;
+  max-width: 100%;
   aspect-ratio: 1;
-  margin: 0 auto;
+  margin: 0;
+  flex: 1 1 auto;
   position: relative;
-  flex-shrink: 0;
   background-color: #000;
   overflow: hidden;
   user-select: none;
@@ -183,23 +211,23 @@
 /* Responsive adjustments */
 @media (max-width: 1200px) {
   .summary-game-area .game-canvas {
-    max-width: min(100%, 80vw, calc(100vh - 200px));
+    max-width: 100%;
   }
 }
 
 @media (max-width: 768px) {
   .summary-game-area {
-    padding: 12px;
+    padding: clamp(8px, 3vw, 16px);
   }
   
   .summary-game-area .game-canvas {
-    max-width: min(100%, calc(100vw - 24px), calc(100vh - 150px));
+    max-width: 100%;
   }
 }
 
 @media (min-width: 1400px) {
   .summary-game-area .game-canvas {
-    max-width: 900px;
+    max-width: 100%;
   }
 }
 

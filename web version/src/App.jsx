@@ -11,6 +11,7 @@ import Tests3 from './components/Tests3';
 import BraceletDetector2 from './components/BraceletDetector2';
 import TopDownPlayerClassifier from './components/TopDownPlayerClassifier';
 import TopDownPlayerClassifierV2 from './components/TopDownPlayerClassifierV2';
+import Admin from './components/Admin';
 import { getGameTracker } from './utils/gameTracker';
 
 // ===== CONFIGURATION =====
@@ -120,6 +121,8 @@ function App() {
     body = <BraceletDetector2 />;
   } else if (currentRoute === '#/summary') {
     body = <Summary />;
+  } else if (currentRoute === '#/admin') {
+    body = <Admin />;
   } else {
     body = (!gameStarted ? (
       <StartDialog onStart={handleStartGame} />
@@ -153,6 +156,7 @@ function App() {
                 📷 Detector
               </button>
               <a href="#/detector2" style={{ background:'#222', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none' }}>Detector2</a>
+              <a href="#/admin" style={{ background:'#444', color:'#fff', padding:'4px 8px', borderRadius:4, fontSize:12, textDecoration:'none', textAlign:'center' }}>Admin</a>
              </div>
         )}
         {!interfaceHidden && (

@@ -14,6 +14,7 @@ function StartDialog({ onStart }) {
 
     const config = {
       id,
+      sessionGameId: id,
       condition,
       timeSeconds: parseInt(timeMinutes) * 60,
       date: new Date().toISOString().replace('T', ' ').substring(0, 19)

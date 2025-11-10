@@ -14,7 +14,8 @@ import {
 
 const BLOCK_SIZE_PX = 60; // pixels
 const GRID_STEP = 0.07;
-const SAVE_CAMERA_FRAMES = false; // Set to true to save camera frame images (base64) in logs
+const SAVE_CAMERA_FRAMES = true; // Set to true to save camera frame images (base64) in logs
+const DEFAULT_BOTTOM_PADDING = 120;
 
 function GameCanvas({ config, interfaceHidden = false }) {
   const [blocks, setBlocks] = useState(createInitialBlocks());
@@ -26,12 +27,17 @@ function GameCanvas({ config, interfaceHidden = false }) {
   const [galleryImage, setGalleryImage] = useState(null);
   const [showMessage, setShowMessage] = useState(true);
   const [messageText, setMessageText] = useState('');
+  const [canvasVars, setCanvasVars] = useState({
+    blockSize: BLOCK_SIZE_PX,
+    bottomPadding: DEFAULT_BOTTOM_PADDING
+  });
 
   const canvasRef = useRef(null);
-  const loggerRef = useRef(new CSVLogger(config.id));
+  const loggerRef = useRef(new CSVLogger(config));
   const gameTrackerRef = useRef(getGameTracker());
   const blockPickupTimeRef = useRef(null); // Track when block was picked up
   const startTimeRef = useRef(Date.now());
+  const bottomPaddingRef = useRef(DEFAULT_BOTTOM_PADDING);
 
   const welcomeMessage = `Welcome to the creative game!
 
@@ -49,11 +55,59 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
 
   const byeMessage = `The experiment is done. Thank you very much for your participation!`;
 
+  const updateCanvasMetrics = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+
+    const width = canvas.offsetWidth;
+    const height = canvas.offsetHeight;
+
+    if (!width || !height) {
+      return;
+    }
+
+    const currentPadding = bottomPaddingRef.current || DEFAULT_BOTTOM_PADDING;
+
+    let playArea = Math.max(1, Math.min(width, height - currentPadding));
+    let blockSizeEstimate = Math.max(38, Math.min(playArea * GRID_STEP * 0.95, playArea / 4));
+    let bottomPadding = Math.max(blockSizeEstimate * 2.5, 110);
+
+    // Recalculate once more using the refined padding value for better accuracy
+    playArea = Math.max(1, Math.min(width, height - bottomPadding));
+    blockSizeEstimate = Math.max(38, Math.min(playArea * GRID_STEP * 0.95, playArea / 4));
+    bottomPadding = Math.max(blockSizeEstimate * 2.5, 110);
+
+    bottomPaddingRef.current = bottomPadding;
+
+    setCanvasVars(prev => {
+      const blockDiff = Math.abs(prev.blockSize - blockSizeEstimate);
+      const paddingDiff = Math.abs(prev.bottomPadding - bottomPadding);
+
+      if (blockDiff < 0.5 && paddingDiff < 0.5) {
+        return prev;
+      }
+
+      return {
+        blockSize: blockSizeEstimate,
+        bottomPadding
+      };
+    });
+  }, []);
+
   useEffect(() => {
     setMessageText(welcomeMessage);
     
     // Start game tracker when component mounts
     gameTrackerRef.current.start();
+    gameTrackerRef.current.setSessionInfo({
+      id: config.id,
+      sessionGameId: config.sessionGameId,
+      condition: config.condition,
+      timeSeconds: config.timeSeconds,
+      date: config.date
+    });
     console.log('[GameCanvas] Game tracker started');
     
     return () => {
@@ -61,6 +115,20 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       gameTrackerRef.current.stop();
     };
   }, []);
+
+  useEffect(() => {
+    updateCanvasMetrics();
+  }, [updateCanvasMetrics, interfaceHidden]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      updateCanvasMetrics();
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [updateCanvasMetrics]);
 
   // Timer
   useEffect(() => {
@@ -100,12 +168,12 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     if (!canvas) return 0;
     // Use the smaller dimension to maintain square coordinate system
     // Account for bottom padding (120px) when calculating y coordinates
-    const availableHeight = canvas.offsetHeight - 120; // Subtract bottom margin
+    const availableHeight = canvas.offsetHeight - bottomPaddingRef.current; // Subtract bottom margin
     const size = Math.min(canvas.offsetWidth, availableHeight);
     // Center the coordinate system
     const offset = dimension === 'x' 
       ? (canvas.offsetWidth - size) / 2 
-      : (canvas.offsetHeight - 120 - size) / 2; // Account for bottom margin
+      : (canvas.offsetHeight - bottomPaddingRef.current - size) / 2; // Account for bottom margin
     return ((px - offset) / size) - 0.5;
   };
 
@@ -114,12 +182,12 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     if (!canvas) return 0;
     // Use the smaller dimension to maintain square coordinate system
     // Account for bottom padding (120px) when calculating y coordinates
-    const availableHeight = canvas.offsetHeight - 120; // Subtract bottom margin
+    const availableHeight = canvas.offsetHeight - bottomPaddingRef.current; // Subtract bottom margin
     const size = Math.min(canvas.offsetWidth, availableHeight);
     // Center the coordinate system
     const offset = dimension === 'x' 
       ? (canvas.offsetWidth - size) / 2 
-      : (canvas.offsetHeight - 120 - size) / 2; // Account for bottom margin
+      : (canvas.offsetHeight - bottomPaddingRef.current - size) / 2; // Account for bottom margin
     return ((relative + 0.5) * size) + offset;
   };
 
@@ -253,9 +321,10 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const currentPlayer = window.currentBraceletStatus || 'Unknown';
 
     // Log the move to CSV with the final snapped position and updated all_positions
-    const logEntry = {
+      const logEntry = {
       date: config.date,
       id: config.id,
+        sessionGameId: config.sessionGameId,
       condition: config.condition,
       phase: isPractice ? 'practice' : 'experiment',
       type: 'moveblock',
@@ -300,6 +369,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const logEntry = {
       date: config.date,
       id: config.id,
+      sessionGameId: config.sessionGameId,
       condition: config.condition,
       phase: isPractice ? 'practice' : 'experiment',
       type: 'added shape to gallery',
@@ -363,12 +433,19 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       setGalleryNumber(0);
       
       // Clear all collected data from practice and start fresh
-      loggerRef.current = new CSVLogger(config.id);
+      loggerRef.current = new CSVLogger(config);
       
       // Restart game tracker for real game
       gameTrackerRef.current.stop();
       gameTrackerRef.current = getGameTracker();
       gameTrackerRef.current.start();
+      gameTrackerRef.current.setSessionInfo({
+        id: config.id,
+        sessionGameId: config.sessionGameId,
+        condition: config.condition,
+        timeSeconds: config.timeSeconds,
+        date: config.date
+      });
       console.log('[GameCanvas] Game tracker restarted for real game');
     } else if (e.key === 'q' && !isPractice) {
       setShowMessage(true);
@@ -424,6 +501,10 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     <div 
       className="game-canvas" 
       ref={canvasRef}
+      style={{
+        '--block-size': `${canvasVars.blockSize}px`,
+        '--bottom-padding': `${canvasVars.bottomPadding}px`
+      }}
       onMouseMove={handleMouseMove}
       onMouseUp={handleMouseUp}
       onMouseLeave={handleMouseUp}
