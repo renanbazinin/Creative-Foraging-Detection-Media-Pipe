@@ -543,16 +543,31 @@ function BraceletDetector({ hidden = false }) {
         ctx.lineWidth = 3;
         ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
 
-        // Get ROI pixels
-        const roiData = ctx.getImageData(x1, y1, x2 - x1, y2 - y1);
-        const calibA = calibrationARef.current;
-        const calibB = calibrationBRef.current;
-        // Binary decision A vs B whenever a hand is visible
-        const decision = decideBinaryAorB(roiData, calibA, calibB);
-        detectedStatus = decision.status;
-        // Update live percentages for UI (0..1 or null)
-        setAbPercents({ a: decision.percentA, b: decision.percentB });
-        dbg('Detection result:', detectedStatus, { roi: { x1, y1, w: x2 - x1, h: y2 - y1 } });
+        // Get ROI pixels - with safety checks
+        const roiWidth = x2 - x1;
+        const roiHeight = y2 - y1;
+        
+        if (roiWidth > 0 && roiHeight > 0) {
+          try {
+            const roiData = ctx.getImageData(x1, y1, roiWidth, roiHeight);
+            const calibA = calibrationARef.current;
+            const calibB = calibrationBRef.current;
+            // Binary decision A vs B whenever a hand is visible
+            const decision = decideBinaryAorB(roiData, calibA, calibB);
+            detectedStatus = decision.status;
+            // Update live percentages for UI (0..1 or null)
+            setAbPercents({ a: decision.percentA, b: decision.percentB });
+            dbg('Detection result:', detectedStatus, { roi: { x1, y1, w: roiWidth, h: roiHeight } });
+          } catch (error) {
+            console.warn('[Detector] Failed to get ROI image data:', error.message);
+            detectedStatus = 'None';
+            setAbPercents({ a: null, b: null });
+          }
+        } else {
+          console.warn('[Detector] Invalid ROI dimensions:', { width: roiWidth, height: roiHeight });
+          detectedStatus = 'None';
+          setAbPercents({ a: null, b: null });
+        }
       }
     }
 

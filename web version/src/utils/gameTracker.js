@@ -1,9 +1,19 @@
 /**
  * Game Tracker Utility
  * Tracks game moves with bracelet detection to determine which player made each move
+ * Also handles server persistence
  */
 
 const GRID_UNIT = 0.035; // Half-step of GRID_STEP (0.07) to represent the playable lattice
+
+const resolveApiBaseUrl = () => {
+  try {
+    return (import.meta?.env?.VITE_API_BASE_URL) || 'http://localhost:4000/api';
+  } catch (error) {
+    console.warn('[GameTracker] Unable to read VITE_API_BASE_URL, falling back to default.');
+    return 'http://localhost:4000/api';
+  }
+};
 
 class GameTracker {
   constructor() {
@@ -14,6 +24,8 @@ class GameTracker {
     this.trackingWindow = 1000; // 1 second window for lost tracking
     this.lastKnownPlayer = null; // Track last known player (A or B) for fallback
     this.sessionInfo = null;
+    this.apiBaseUrl = resolveApiBaseUrl();
+    this.sessionInitialized = false;
     
     // Listen to bracelet detection status from localStorage or events
     this.setupBraceletListener();
@@ -82,13 +94,55 @@ class GameTracker {
   }
 
   /**
-   * Start tracking
+   * Set session info and initialize session on server
    */
-  setSessionInfo(info = {}) {
+  async setSessionInfo(info = {}) {
     this.sessionInfo = {
       ...info,
       startedAt: this.sessionInfo?.startedAt || new Date(this.startTime).toISOString()
     };
+    
+    // Initialize session on server
+    await this.initializeSession();
+  }
+
+  /**
+   * Initialize session on server
+   */
+  async initializeSession() {
+    if (this.sessionInitialized || !this.sessionInfo?.sessionGameId) {
+      return;
+    }
+
+    const payload = {
+      sessionGameId: this.sessionInfo.sessionGameId,
+      subjectId: this.sessionInfo.id,
+      condition: this.sessionInfo.condition,
+      date: this.sessionInfo.date,
+      timeSeconds: this.sessionInfo.timeSeconds,
+      metadata: {
+        config: this.sessionInfo
+      }
+    };
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/sessions`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to initialize session (${response.status})`);
+      }
+      
+      this.sessionInitialized = true;
+      console.log('[GameTracker] Session initialized on server:', this.sessionInfo.sessionGameId);
+    } catch (error) {
+      console.error('[GameTracker] Failed to initialize session:', error);
+    }
   }
 
   /**
@@ -129,12 +183,12 @@ class GameTracker {
   }
 
   /**
-   * Record a move with player attribution
+   * Record a move with player attribution and persist to server
    * @param {Object} moveData - Move information
    * @param {number} holdTime - Time in seconds the player held the block
    * @param {string|null} cameraFrame - Base64 encoded camera frame image (optional)
    */
-  recordMove(moveData, holdTime = 0, cameraFrame = null) {
+  async recordMove(moveData, holdTime = 0, cameraFrame = null) {
     if (!this.isTracking) return;
 
     const timestamp = Date.now();
@@ -191,6 +245,11 @@ class GameTracker {
     
     this.moves.push(move);
     
+    // Persist move to server
+    this.persistMove(move).catch(error => {
+      console.error('[GameTracker] Failed to persist move to server:', error);
+    });
+    
     // Debug log: print what was saved
     const currentStatusDebug = this.getCurrentBraceletStatus();
     const lastKnownDebug = this.lastKnownPlayer;
@@ -208,6 +267,32 @@ class GameTracker {
         recentHistory: this.braceletHistory.slice(-5).map(h => ({ status: h.status, elapsed: h.elapsed.toFixed(2) }))
       }
     });
+  }
+
+  /**
+   * Persist a single move to the server
+   */
+  async persistMove(move) {
+    if (!this.sessionInitialized || !this.sessionInfo?.sessionGameId) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/sessions/${encodeURIComponent(this.sessionInfo.sessionGameId)}/moves`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(move)
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to persist move (${response.status})`);
+      }
+    } catch (error) {
+      console.error('[GameTracker] persistMove error:', error);
+      throw error;
+    }
   }
 
   /**

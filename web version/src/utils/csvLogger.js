@@ -1,88 +1,21 @@
-// CSV Logger - Client-side logging with download capability
-
-const resolveApiBaseUrl = () => {
-  try {
-    return (import.meta?.env?.VITE_API_BASE_URL) || 'http://localhost:4000/api';
-  } catch (error) {
-    console.warn('[CSVLogger] Unable to read VITE_API_BASE_URL, falling back to default.');
-    return 'http://localhost:4000/api';
-  }
-};
+// CSV Logger - Client-side logging for CSV download only
+// Server persistence is handled by GameTracker
 
 class CSVLogger {
   constructor(config) {
     this.subjectId = config?.id || '';
     this.sessionId = config?.sessionGameId || this.subjectId;
-    this.condition = config?.condition;
-    this.date = config?.date;
-    this.timeSeconds = config?.timeSeconds;
     this.logs = [];
     this.header = [
       'date', 'id', 'sessionGameId', 'condition', 'phase', 'type', 'time',
       'unit', 'end_position', 'all_positions',
       'gallery_shape_number', 'gallery', 'gallery_normalized'
     ];
-    this.apiBaseUrl = resolveApiBaseUrl();
-    this.sessionPromise = this.ensureSession(config);
   }
 
-  async ensureSession(config) {
-    if (!this.sessionId || !this.subjectId) {
-      console.warn('[CSVLogger] Missing session or subject id; skipping server persistence.');
-      return;
-    }
-
-    const payload = {
-      sessionGameId: this.sessionId,
-      subjectId: this.subjectId,
-      condition: this.condition,
-      date: this.date,
-      timeSeconds: this.timeSeconds,
-      metadata: {
-        config
-      }
-    };
-
-    try {
-      const response = await fetch(`${this.apiBaseUrl}/sessions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to initialize session (${response.status})`);
-      }
-    } catch (error) {
-      console.error('[CSVLogger] Failed to initialize session on server:', error);
-    }
-  }
-
-  async write(entry) {
+  write(entry) {
+    // Only store in memory for CSV download
     this.logs.push(entry);
-
-    if (!this.sessionId) {
-      return;
-    }
-
-    try {
-      await this.sessionPromise;
-      const response = await fetch(`${this.apiBaseUrl}/sessions/${encodeURIComponent(this.sessionId)}/moves`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(entry)
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to persist move (${response.status})`);
-      }
-    } catch (error) {
-      console.error('[CSVLogger] Failed to persist move:', error);
-    }
   }
 
   downloadCSV() {
