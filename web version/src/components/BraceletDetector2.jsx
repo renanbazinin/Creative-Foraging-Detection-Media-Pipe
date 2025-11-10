@@ -348,9 +348,16 @@ function BraceletDetector2() {
   const onResultsB = (results) => processResults(results, canvasBRef, 'B');
 
   const processResults = (results, canvasRef, which) => {
-    const canvas = canvasRef.current; const ctx = canvas.getContext('2d');
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
     const video = which === 'A' ? videoARef.current : videoBRef.current;
-    if (!canvas || !video) return;
+    if (!video || video.videoWidth === 0 || video.videoHeight === 0) {
+      if (which === 'A') latestARef.current = { wristY: null, wristX: null, landmarks: null, player: 'None' };
+      else latestBRef.current = { wristY: null, wristX: null, landmarks: null, player: 'None' };
+      return;
+    }
     canvas.width = video.videoWidth; canvas.height = video.videoHeight;
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
@@ -414,18 +421,36 @@ function BraceletDetector2() {
       const x2 = Math.min(canvas.width, selectedWristX + halfSize);
       const y2 = Math.min(canvas.height, selectedY + halfSize);
 
-      // Draw ROI box
-      ctx.strokeStyle = 'lime';
-      ctx.lineWidth = 3;
-      ctx.strokeRect(x1, y1, x2 - x1, y2 - y1);
+      const left = Math.max(0, Math.floor(x1));
+      const top = Math.max(0, Math.floor(y1));
+      let width = Math.floor(x2 - x1);
+      let height = Math.floor(y2 - y1);
+      width = Math.max(1, width);
+      height = Math.max(1, height);
+      width = Math.min(width, canvas.width - left);
+      height = Math.min(height, canvas.height - top);
 
-      // Get ROI pixels
-      const roiData = ctx.getImageData(x1, y1, x2 - x1, y2 - y1);
-      const calibA = calibrationARef.current;
-      const calibB = calibrationBRef.current;
-      // Binary decision A vs B
-      const decision = decideBinaryAorB(roiData, calibA, calibB);
-      detectedStatus = decision.status;
+      if (width > 0 && height > 0) {
+        // Draw ROI box
+        ctx.strokeStyle = 'lime';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(left, top, width, height);
+
+        try {
+          // Get ROI pixels
+          const roiData = ctx.getImageData(left, top, width, height);
+          const calibA = calibrationARef.current;
+          const calibB = calibrationBRef.current;
+          // Binary decision A vs B
+          const decision = decideBinaryAorB(roiData, calibA, calibB);
+          detectedStatus = decision.status;
+        } catch (error) {
+          console.warn('[Detector2] ROI sampling failed:', error);
+          detectedStatus = 'None';
+        }
+      } else {
+        dbg('ROI skipped due to zero width/height', { width, height, left, top });
+      }
     }
 
     // >>> TOP/BOTTOM SELECTION LOGIC <<<
