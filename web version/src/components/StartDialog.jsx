@@ -4,7 +4,7 @@ import './StartDialog.css';
 function StartDialog({ onStart }) {
   const [id, setId] = useState('1');
   const [condition, setCondition] = useState('individual');
-  const [timeMinutes, setTimeMinutes] = useState('5');
+  const [timeMinutes, setTimeMinutes] = useState('15');
 
   const handleOK = () => {
     if (!id || !timeMinutes) {

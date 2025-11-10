@@ -97,8 +97,9 @@
 
 .gallery {
   position: absolute;
-  top: clamp(10px, 2vh, 20px);
-  left: clamp(10px, 2vw, 20px);
+  bottom: clamp(10px, 2vh, 20px);
+  left: 50%;
+  transform: translateX(-50%);
   cursor: pointer;
   z-index: 10;
   pointer-events: auto;
@@ -151,8 +152,10 @@
 /* Mobile specific adjustments */
 @media (max-width: 767px) {
   .gallery {
-    top: 8px;
-    right: 8px;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    right: auto;
   }
   
   .gallery-frame {
