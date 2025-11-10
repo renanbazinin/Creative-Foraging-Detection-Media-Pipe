@@ -44,9 +44,13 @@ export const getAllowedPositions = (blocks, targetId) => {
   allowed = allowed.filter(pos => !existingPositions.includes(`${pos[0]},${pos[1]}`));
 
   // Remove out of bounds positions
+  // Bottom margin: reduce y-axis upper bound to prevent blocks in gallery area
+  // With 120px bottom margin, we need to reduce the playable area proportionally
+  // Assuming typical canvas height ~800px, 120px is ~15% of height, so reduce upper bound by ~0.15
+  // Original: 0.49, reduced to ~0.42 to account for bottom margin
   allowed = allowed.filter(pos => 
     pos[0] < 0.735 && pos[0] > -0.735 &&
-    pos[1] < 0.49 && pos[1] > -0.49
+    pos[1] < 0.42 && pos[1] > -0.49  // Reduced upper bound to prevent blocks in gallery area
   );
 
   return allowed;

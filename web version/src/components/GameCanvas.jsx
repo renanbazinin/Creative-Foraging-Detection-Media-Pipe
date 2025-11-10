@@ -99,11 +99,13 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const canvas = canvasRef.current;
     if (!canvas) return 0;
     // Use the smaller dimension to maintain square coordinate system
-    const size = Math.min(canvas.offsetWidth, canvas.offsetHeight);
+    // Account for bottom padding (120px) when calculating y coordinates
+    const availableHeight = canvas.offsetHeight - 120; // Subtract bottom margin
+    const size = Math.min(canvas.offsetWidth, availableHeight);
     // Center the coordinate system
     const offset = dimension === 'x' 
       ? (canvas.offsetWidth - size) / 2 
-      : (canvas.offsetHeight - size) / 2;
+      : (canvas.offsetHeight - 120 - size) / 2; // Account for bottom margin
     return ((px - offset) / size) - 0.5;
   };
 
@@ -111,11 +113,13 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const canvas = canvasRef.current;
     if (!canvas) return 0;
     // Use the smaller dimension to maintain square coordinate system
-    const size = Math.min(canvas.offsetWidth, canvas.offsetHeight);
+    // Account for bottom padding (120px) when calculating y coordinates
+    const availableHeight = canvas.offsetHeight - 120; // Subtract bottom margin
+    const size = Math.min(canvas.offsetWidth, availableHeight);
     // Center the coordinate system
     const offset = dimension === 'x' 
       ? (canvas.offsetWidth - size) / 2 
-      : (canvas.offsetHeight - size) / 2;
+      : (canvas.offsetHeight - 120 - size) / 2; // Account for bottom margin
     return ((relative + 0.5) * size) + offset;
   };
 

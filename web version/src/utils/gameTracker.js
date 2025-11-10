@@ -118,15 +118,16 @@ class GameTracker {
    * Record a move with player attribution
    * @param {Object} moveData - Move information
    * @param {number} holdTime - Time in seconds the player held the block
+   * @param {string|null} cameraFrame - Base64 encoded camera frame image (optional)
    */
-  recordMove(moveData, holdTime = 0) {
+  recordMove(moveData, holdTime = 0, cameraFrame = null) {
     if (!this.isTracking) return;
 
     const timestamp = Date.now();
     const elapsed = (timestamp - this.startTime) / 1000;
     
-    // Determine which player made the move
-    const player = this.determinePlayer(timestamp);
+    // Determine which player made the move (use provided player or determine from bracelet)
+    const player = moveData.player || this.determinePlayer(timestamp);
     
     // Convert positions to grid coordinates, prefer precomputed grid data
     const gridPosition =
@@ -155,6 +156,11 @@ class GameTracker {
       grid_end_position: gridPosition,
       grid_all_positions: allGridPositions
     };
+    
+    // Add camera frame if provided
+    if (cameraFrame || moveData.camera_frame) {
+      move.camera_frame = cameraFrame || moveData.camera_frame;
+    }
     
     // Add gallery info if present
     if (moveData.gallery_shape_number !== undefined) {

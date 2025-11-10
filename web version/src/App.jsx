@@ -125,7 +125,7 @@ function App() {
       <StartDialog onStart={handleStartGame} />
     ) : (
       <>
-        <GameCanvas config={gameConfig} />
+        <GameCanvas config={gameConfig} interfaceHidden={interfaceHidden} />
         {ENABLE_DETECTOR && !DETECTOR_IN_NEW_WINDOW && (
           <BraceletDetector hidden={interfaceHidden} />
         )}

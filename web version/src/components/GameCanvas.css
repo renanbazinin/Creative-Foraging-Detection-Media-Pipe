@@ -6,6 +6,8 @@
   overflow: hidden;
   user-select: none;
   touch-action: none; /* Prevent default touch behaviors */
+  padding-bottom: 120px; /* Bottom margin to prevent blocks from interfering with gallery */
+  box-sizing: border-box;
 }
 
 .block {
@@ -106,8 +108,8 @@
 }
 
 .gallery-frame {
-  width: clamp(120px, 15vw, 200px);
-  height: clamp(90px, 11.25vw, 150px);
+  width: clamp(80px, 10vw, 140px);
+  height: clamp(60px, 7.5vw, 105px);
   background-color: white;
   border: clamp(2px, 0.4vw, 4px) solid white;
   display: flex;
@@ -159,8 +161,8 @@
   }
   
   .gallery-frame {
-    width: 100px;
-    height: 75px;
+    width: 70px;
+    height: 52px;
     border: 2px solid white;
   }
   
@@ -180,8 +182,8 @@
 /* Very small mobile devices */
 @media (max-width: 400px) {
   .gallery-frame {
-    width: 80px;
-    height: 60px;
+    width: 60px;
+    height: 45px;
   }
   
   .gallery-placeholder {
