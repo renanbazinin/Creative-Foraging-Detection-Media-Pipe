@@ -150,6 +150,61 @@
   position: relative;
 }
 
+.admin-toolbar {
+  display: flex;
+  gap: 12px;
+  padding: 20px 24px 0 24px;
+  flex-wrap: wrap;
+}
+
+.admin-toolbar-button {
+  padding: 10px 20px;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #4CAF50;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.admin-toolbar-button:hover {
+  background: #4CAF50;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+}
+
+.admin-toolbar-button.experiment-toggle {
+  background: linear-gradient(135deg, #2a2a2a 0%, #1f1f1f 100%);
+  border: 2px solid #4CAF50;
+}
+
+.admin-toolbar-button.experiment-toggle:hover {
+  background: linear-gradient(135deg, #333 0%, #2a2a2a 100%);
+  border-color: #5cd65c;
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
+}
+
+.admin-toolbar-button.experiment-toggle.active {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  border-color: #4CAF50;
+}
+
+.admin-toolbar-button.experiment-toggle.active:hover {
+  background: linear-gradient(135deg, #45a049 0%, #3d8b40 100%);
+}
+
+.admin-toolbar-button.edit-players {
+  background: linear-gradient(135deg, #2196F3 0%, #1976D2 100%);
+  border: 2px solid #2196F3;
+}
+
+.admin-toolbar-button.edit-players:hover {
+  background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);
+  box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
+}
+
 .admin-status,
 .admin-error {
   padding: 16px 24px;

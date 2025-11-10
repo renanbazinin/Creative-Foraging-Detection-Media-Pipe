@@ -135,13 +135,25 @@ class GameTracker {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to initialize session (${response.status})`);
+        const errorData = await response.json().catch(() => ({}));
+        const errorMessage = errorData.message || `Failed to initialize session (${response.status})`;
+        
+        if (response.status === 409) {
+          // Session ID conflict - show user-friendly alert
+          alert(`⚠️ Session ID Conflict\n\n${errorMessage}\n\nPlease choose a different Session ID.`);
+          // Prevent further tracking
+          this.stop();
+          throw new Error(errorMessage);
+        }
+        
+        throw new Error(errorMessage);
       }
       
       this.sessionInitialized = true;
       console.log('[GameTracker] Session initialized on server:', this.sessionInfo.sessionGameId);
     } catch (error) {
       console.error('[GameTracker] Failed to initialize session:', error);
+      throw error;
     }
   }
 

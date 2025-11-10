@@ -12,6 +12,7 @@ import BraceletDetector2 from './components/BraceletDetector2';
 import TopDownPlayerClassifier from './components/TopDownPlayerClassifier';
 import TopDownPlayerClassifierV2 from './components/TopDownPlayerClassifierV2';
 import Admin from './components/Admin';
+import MoveHistoryEditor from './components/MoveHistoryEditor';
 import { getGameTracker } from './utils/gameTracker';
 
 // ===== CONFIGURATION =====
@@ -113,6 +114,10 @@ function App() {
 
   // Route-aware rendering without early returns to keep hooks order stable
   let body = null;
+  
+  // Check for dynamic routes first (e.g., /admin/edit-moves/:id)
+  const editMovesMatch = currentRoute.match(/^#\/admin\/edit-moves\/(.+)$/);
+  
   if (currentRoute === '#/detector') {
     body = <BraceletDetector />;
   } else if (currentRoute === '#/calibrate') {
@@ -123,6 +128,10 @@ function App() {
     body = <Summary />;
   } else if (currentRoute === '#/admin') {
     body = <Admin />;
+  } else if (editMovesMatch) {
+    // Extract the sessionGameId from the route
+    const sessionGameId = decodeURIComponent(editMovesMatch[1]);
+    body = <MoveHistoryEditor key={sessionGameId} sessionGameId={sessionGameId} />;
   } else {
     body = (!gameStarted ? (
       <StartDialog onStart={handleStartGame} />

@@ -100,15 +100,28 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     setMessageText(welcomeMessage);
     
     // Start game tracker when component mounts
-    gameTrackerRef.current.start();
-    gameTrackerRef.current.setSessionInfo({
-      id: config.id,
-      sessionGameId: config.sessionGameId,
-      condition: config.condition,
-      timeSeconds: config.timeSeconds,
-      date: config.date
-    });
-    console.log('[GameCanvas] Game tracker started');
+    const initializeTracker = async () => {
+      try {
+        gameTrackerRef.current.start();
+        await gameTrackerRef.current.setSessionInfo({
+          id: config.id,
+          sessionGameId: config.sessionGameId,
+          condition: config.condition,
+          timeSeconds: config.timeSeconds,
+          date: config.date
+        });
+        console.log('[GameCanvas] Game tracker started');
+      } catch (error) {
+        console.error('[GameCanvas] Failed to initialize tracker:', error);
+        // Show error and redirect back to start
+        setTimeout(() => {
+          alert('Failed to start session. Please try again with a different Session ID.');
+          window.location.reload();
+        }, 100);
+      }
+    };
+    
+    initializeTracker();
     
     return () => {
       // Stop tracker on unmount

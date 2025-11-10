@@ -81,6 +81,7 @@ function Admin() {
   const [sessionData, setSessionData] = useState(null);
   const [sessionLoading, setSessionLoading] = useState(false);
   const [sessionError, setSessionError] = useState(null);
+  const [isExperimentOnly, setIsExperimentOnly] = useState(false);
 
   const fetchSessions = useCallback(async () => {
     setSessionsLoading(true);
@@ -158,6 +159,78 @@ function Admin() {
 
   const handleSelectSession = (sessionGameId) => {
     setSelectedSessionId(sessionGameId);
+    setIsExperimentOnly(false); // Reset to show all when selecting a new session
+  };
+
+  const toggleExperimentOnly = async () => {
+    if (!selectedSessionId) return;
+    
+    const newMode = !isExperimentOnly;
+    setIsExperimentOnly(newMode);
+    
+    setSessionLoading(true);
+    setSessionError(null);
+    try {
+      const endpoint = newMode 
+        ? `${API_BASE_URL}/sessions/${encodeURIComponent(selectedSessionId)}/experiment-only`
+        : `${API_BASE_URL}/sessions/${encodeURIComponent(selectedSessionId)}`;
+        
+      const response = await fetch(endpoint);
+      if (!response.ok) {
+        throw new Error(`Failed to load session data (${response.status})`);
+      }
+      const data = await response.json();
+      setSessionData(transformSessionToGameData(data));
+    } catch (error) {
+      console.error('[Admin] Error loading session data:', error);
+      setSessionError(error.message || 'Failed to load session data');
+      setIsExperimentOnly(!newMode); // Revert on error
+    } finally {
+      setSessionLoading(false);
+    }
+  };
+
+  const handleEditPlayers = () => {
+    if (selectedSessionId) {
+      window.location.hash = `#/admin/edit-moves/${encodeURIComponent(selectedSessionId)}`;
+    }
+  };
+
+  const handlePlayerUpdate = async (moveId, newPlayer) => {
+    if (!selectedSessionId || !moveId) return;
+
+    try {
+      const response = await fetch(
+        `${API_BASE_URL}/sessions/${encodeURIComponent(selectedSessionId)}/moves/${encodeURIComponent(moveId)}`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ player: newPlayer })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to update player (${response.status})`);
+      }
+
+      // Update local state
+      setSessionData(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          moves: prev.moves.map(move =>
+            move._id === moveId ? { ...move, player: newPlayer } : move
+          )
+        };
+      });
+
+      console.log('[Admin] Player updated:', moveId, newPlayer);
+    } catch (error) {
+      console.error('[Admin] Error updating player:', error);
+      alert('Failed to update player: ' + error.message);
+    }
   };
 
   return (
@@ -213,14 +286,34 @@ function Admin() {
           <div className="admin-error admin-error--content">{sessionError}</div>
         )}
         {!sessionLoading && !sessionError && sessionData && (
-          <div className="admin-summary-wrapper">
-            <Summary
-              initialData={sessionData}
-              enableFileUpload={false}
-              className="embedded-summary"
-              title={`Session ${sessionData.sessionInfo?.sessionGameId || selectedSessionId || ''}`}
-            />
-          </div>
+          <>
+            <div className="admin-toolbar">
+              <button 
+                className={`admin-toolbar-button experiment-toggle ${isExperimentOnly ? 'active' : ''}`}
+                onClick={toggleExperimentOnly}
+                title={isExperimentOnly ? 'Show all moves (including practice)' : 'Show only experiment phase moves'}
+              >
+                {isExperimentOnly ? 'Show All Moves' : 'Experiment Only'}
+              </button>
+              <button 
+                className="admin-toolbar-button edit-players"
+                onClick={handleEditPlayers}
+                title="Open dedicated editor for player assignments"
+              >
+                Edit Players
+              </button>
+            </div>
+            <div className="admin-summary-wrapper">
+              <Summary
+                initialData={sessionData}
+                enableFileUpload={false}
+                className="embedded-summary"
+                title={`Session ${sessionData.sessionInfo?.sessionGameId || selectedSessionId || ''}${isExperimentOnly ? ' (Experiment Only)' : ''}`}
+                sessionGameId={selectedSessionId}
+                onPlayerUpdate={handlePlayerUpdate}
+              />
+            </div>
+          </>
         )}
         {!sessionLoading && !sessionError && !sessionData && (
           <div className="admin-status admin-status--content">Select a session to view its moves.</div>

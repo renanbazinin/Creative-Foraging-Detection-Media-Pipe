@@ -12,7 +12,9 @@ function Summary({
   initialData = null,
   title = 'Game Summary',
   enableFileUpload = true,
-  className = ''
+  className = '',
+  sessionGameId = null,
+  onPlayerUpdate = null
 }) {
   const [gameData, setGameData] = useState(initialData);
   const [currentMoveIndex, setCurrentMoveIndex] = useState(0);
@@ -22,6 +24,7 @@ function Summary({
   const [isPractice, setIsPractice] = useState(true);
   const [galleryImages, setGalleryImages] = useState([]);
   const [highlightedBlockId, setHighlightedBlockId] = useState(null);
+  const [editMode, setEditMode] = useState(false);
   const fileInputRef = useRef(null);
   const playbackIntervalRef = useRef(null);
   const canvasRef = useRef(null);
@@ -492,13 +495,23 @@ function Summary({
           </div>
 
           <div className="summary-moves-list">
-            <h2>Move History</h2>
+            <div className="move-list-header">
+              <h2>Move History</h2>
+              {onPlayerUpdate && (
+                <button 
+                  className={`edit-mode-toggle ${editMode ? 'active' : ''}`}
+                  onClick={() => setEditMode(!editMode)}
+                >
+                  {editMode ? '✓ Done Editing' : 'Edit Players'}
+                </button>
+              )}
+            </div>
             <div className="moves-scroll">
               {gameData.moves.map((move, index) => (
                 <div
                   key={index}
-                  className={`move-item ${index === currentMoveIndex ? 'active' : ''}`}
-                  onClick={() => goToMove(index)}
+                  className={`move-item ${index === currentMoveIndex ? 'active' : ''} ${editMode ? 'edit-mode' : ''}`}
+                  onClick={() => !editMode && goToMove(index)}
                 >
                   <div className="move-number">{index + 1}</div>
                   {move.camera_frame && (
@@ -512,7 +525,26 @@ function Summary({
                   )}
                   <div className="move-details">
                     <div className="move-type">{move.type}</div>
-                    <div className="move-player">Player: {move.player}</div>
+                    {editMode && onPlayerUpdate ? (
+                      <div className="move-player-edit">
+                        <label>Player:</label>
+                        <select 
+                          value={move.player || 'Unknown'}
+                          onChange={(e) => {
+                            const newPlayer = e.target.value;
+                            onPlayerUpdate(move._id, newPlayer);
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <option value="Player A">Player A</option>
+                          <option value="Player B">Player B</option>
+                          <option value="None">None</option>
+                          <option value="Unknown">Unknown</option>
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="move-player">Player: {move.player}</div>
+                    )}
                     {(move.blockId !== null && move.blockId !== undefined) || (move.unit !== null && move.unit !== undefined) ? (
                       <div className="move-unit">Block: {move.blockId !== undefined ? move.blockId : move.unit}</div>
                     ) : null}
