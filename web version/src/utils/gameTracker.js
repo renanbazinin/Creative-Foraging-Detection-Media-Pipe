@@ -90,13 +90,71 @@ class GameTracker {
    * Set session info and initialize session on server
    */
   async setSessionInfo(info = {}) {
+    // Get calibration colors
+    const { colorA, colorB } = this.getCalibrationColors();
+    
     this.sessionInfo = {
       ...info,
+      colorA: colorA,
+      colorB: colorB,
       startedAt: this.sessionInfo?.startedAt || new Date(this.startTime).toISOString()
     };
     
+    console.log('[GameTracker] Session info set with colors:', { colorA, colorB });
+    
     // Initialize session on server
     await this.initializeSession();
+  }
+
+  /**
+   * Convert HSV calibration to hex color
+   * @param {Object} calib - {h, s, v} where h is 0-180, s and v are 0-255
+   * @returns {string} Hex color like "#FF0000"
+   */
+  hsvToHex(calib) {
+    if (!calib || typeof calib.h === 'undefined') return null;
+    
+    const h = (calib.h || 0) * 2; // Convert 0-180 to 0-360
+    const s = (calib.s || 0) / 255; // Convert 0-255 to 0-1
+    const v = (calib.v || 0) / 255; // Convert 0-255 to 0-1
+    
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+    
+    let r = 0, g = 0, b = 0;
+    if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+    
+    const toHex = (val) => {
+      const hex = Math.round((val + m) * 255).toString(16);
+      return hex.length === 1 ? '0' + hex : hex;
+    };
+    
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+  }
+
+  /**
+   * Get calibration colors from localStorage
+   * @returns {Object} {colorA: string, colorB: string} or {colorA: null, colorB: null}
+   */
+  getCalibrationColors() {
+    try {
+      const calibA = JSON.parse(localStorage.getItem('calibrationA') || 'null');
+      const calibB = JSON.parse(localStorage.getItem('calibrationB') || 'null');
+      
+      return {
+        colorA: this.hsvToHex(calibA),
+        colorB: this.hsvToHex(calibB)
+      };
+    } catch (error) {
+      console.warn('[GameTracker] Error reading calibration colors:', error);
+      return { colorA: null, colorB: null };
+    }
   }
 
   /**
@@ -107,16 +165,23 @@ class GameTracker {
       return;
     }
 
+    // Get calibration colors
+    const { colorA, colorB } = this.getCalibrationColors();
+    
     const payload = {
       sessionGameId: this.sessionInfo.sessionGameId,
       subjectId: this.sessionInfo.id,
       condition: this.sessionInfo.condition,
       date: this.sessionInfo.date,
       timeSeconds: this.sessionInfo.timeSeconds,
+      colorA: colorA,
+      colorB: colorB,
       metadata: {
         config: this.sessionInfo
       }
     };
+
+    console.log('[GameTracker] Initializing session with colors:', { colorA, colorB });
 
     try {
       const response = await fetch(`${this.apiBaseUrl}/sessions`, {

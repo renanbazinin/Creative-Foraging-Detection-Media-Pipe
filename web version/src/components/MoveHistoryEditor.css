@@ -416,6 +416,184 @@
   transform: rotate(90deg);
 }
 
+/* AI Controls */
+.ai-controls {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.color-picker-toggle {
+  padding: 10px 16px;
+  background: #2a2a2a;
+  color: #fff;
+  border: 1px solid #9C27B0;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.color-picker-toggle:hover {
+  background: #9C27B0;
+  transform: translateY(-1px);
+}
+
+.color-picker-panel {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 8px;
+  background: #1a1a1a;
+  border: 2px solid #9C27B0;
+  border-radius: 8px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  z-index: 200;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  min-width: 250px;
+}
+
+.color-input-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.color-input-group label {
+  color: #fff;
+  font-weight: 600;
+  min-width: 70px;
+}
+
+.color-input-group input[type="color"] {
+  width: 50px;
+  height: 35px;
+  border: 2px solid #4CAF50;
+  border-radius: 6px;
+  cursor: pointer;
+  background: transparent;
+}
+
+.color-input-group span {
+  color: #aaa;
+  font-family: monospace;
+  font-size: 13px;
+}
+
+.ai-btn {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #6B46C1 0%, #9C27B0 100%);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 8px rgba(156, 39, 176, 0.3);
+}
+
+.ai-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #7B56D1 0%, #AC37C0 100%);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(156, 39, 176, 0.5);
+}
+
+.ai-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.ai-btn-all {
+  background: linear-gradient(135deg, #4CAF50 0%, #45a049 100%);
+  box-shadow: 0 2px 8px rgba(76, 175, 80, 0.3);
+}
+
+.ai-btn-all:hover:not(:disabled) {
+  background: linear-gradient(135deg, #5cbd5f 0%, #55b059 100%);
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.5);
+}
+
+.ai-btn-unknown {
+  background: linear-gradient(135deg, #FF9800 0%, #F57C00 100%);
+  box-shadow: 0 2px 8px rgba(255, 152, 0, 0.3);
+}
+
+.ai-btn-unknown:hover:not(:disabled) {
+  background: linear-gradient(135deg, #FFA726 0%, #FB8C00 100%);
+  box-shadow: 0 4px 12px rgba(255, 152, 0, 0.5);
+}
+
+/* AI Suggestion Banner */
+.ai-suggestion-banner {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  background: linear-gradient(135deg, rgba(156, 39, 176, 0.15) 0%, rgba(123, 31, 162, 0.15) 100%);
+  border: 2px solid #9C27B0;
+  border-radius: 8px;
+  margin-bottom: 8px;
+  animation: slideIn 0.3s ease;
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.ai-suggestion-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+}
+
+.ai-icon {
+  font-size: 20px;
+}
+
+.ai-text {
+  color: #ddd;
+  font-size: 13px;
+}
+
+.ai-text strong {
+  color: #fff;
+  font-weight: 700;
+}
+
+.ai-confirm-btn {
+  padding: 6px 16px;
+  background: #4CAF50;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.ai-confirm-btn:hover {
+  background: #45a049;
+  transform: scale(1.05);
+}
+
 /* Responsive adjustments */
 @media (max-width: 1024px) {
   .move-editor-header {
@@ -429,6 +607,16 @@
   .moves-grid {
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
+  }
+  
+  .ai-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  
+  .color-picker-panel {
+    right: auto;
+    left: 0;
   }
 }
 
@@ -452,6 +640,24 @@
   .session-info {
     flex-direction: column;
     gap: 4px;
+  }
+  
+  .ai-controls {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .ai-btn {
+    width: 100%;
+  }
+  
+  .ai-suggestion-banner {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  .ai-confirm-btn {
+    width: 100%;
   }
 }
 

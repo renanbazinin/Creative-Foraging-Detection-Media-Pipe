@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { getApiBaseUrl } from '../config/api.config';
+import { identifyMovesBatch, updateMovePlayer } from '../services/aiApi';
 import './MoveHistoryEditor.css';
 
 const API_BASE_URL = getApiBaseUrl();
@@ -20,6 +21,13 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [expandedImage, setExpandedImage] = useState(null);
   const [filterPhase, setFilterPhase] = useState('all');
   const [password, setPassword] = useState('');
+  
+  // AI identification state
+  const [aiProcessing, setAiProcessing] = useState(false);
+  const [aiSuggestions, setAiSuggestions] = useState({});
+  const [colorA, setColorA] = useState('#FF0000'); // Default red
+  const [colorB, setColorB] = useState('#0000FF'); // Default blue
+  const [showColorPicker, setShowColorPicker] = useState(false);
 
   // Load password from localStorage
   useEffect(() => {
@@ -34,6 +42,34 @@ function MoveHistoryEditor({ sessionGameId }) {
       loadSession();
     }
   }, [sessionGameId, password]);
+
+  // Helper function to convert HSV to Hex
+  const hsvToHex = (calib) => {
+    if (!calib || typeof calib.h === 'undefined') return null;
+    
+    const h = (calib.h || 0) * 2; // Convert 0-180 to 0-360
+    const s = (calib.s || 0) / 255; // Convert 0-255 to 0-1
+    const v = (calib.v || 0) / 255; // Convert 0-255 to 0-1
+    
+    const c = v * s;
+    const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+    const m = v - c;
+    
+    let r = 0, g = 0, b = 0;
+    if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
+    else if (h < 120) { r = x; g = c; b = 0; }
+    else if (h < 180) { r = 0; g = c; b = x; }
+    else if (h < 240) { r = 0; g = x; b = c; }
+    else if (h < 300) { r = x; g = 0; b = c; }
+    else { r = c; g = 0; b = x; }
+    
+    const toHex = (val) => {
+      const hex = Math.round((val + m) * 255).toString(16);
+      return hex.length === 1 ? '0' + hex : hex;
+    };
+    
+    return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+  };
 
   const loadSession = async () => {
     if (!password) return;
@@ -51,6 +87,37 @@ function MoveHistoryEditor({ sessionGameId }) {
       }
       const data = await response.json();
       setSession(data);
+      
+      // Priority 1: Load colors from session if available
+      if (data.colorA && data.colorB) {
+        setColorA(data.colorA);
+        setColorB(data.colorB);
+        console.log('[MoveHistoryEditor] ✅ Loaded colors from session:', data.colorA, data.colorB);
+      } else {
+        // Priority 2: Fall back to localStorage calibration
+        try {
+          const calibA = JSON.parse(localStorage.getItem('calibrationA') || 'null');
+          const calibB = JSON.parse(localStorage.getItem('calibrationB') || 'null');
+          
+          if (calibA && calibB) {
+            const hexA = hsvToHex(calibA);
+            const hexB = hsvToHex(calibB);
+            
+            if (hexA && hexB) {
+              setColorA(hexA);
+              setColorB(hexB);
+              console.log('[MoveHistoryEditor] ⚠️ Session has no colors, loaded from localStorage calibration:', hexA, hexB);
+            } else {
+              console.log('[MoveHistoryEditor] ℹ️ Using default colors (red/blue)');
+            }
+          } else {
+            console.log('[MoveHistoryEditor] ℹ️ No calibration found, using default colors (red/blue)');
+          }
+        } catch (err) {
+          console.warn('[MoveHistoryEditor] Error reading calibration from localStorage:', err);
+          console.log('[MoveHistoryEditor] ℹ️ Using default colors (red/blue)');
+        }
+      }
     } catch (err) {
       console.error('[MoveHistoryEditor] Error loading session:', err);
       setError(err.message);
@@ -90,11 +157,87 @@ function MoveHistoryEditor({ sessionGameId }) {
         };
       });
 
+      // Remove AI suggestion for this move after manual update
+      setAiSuggestions(prev => {
+        const updated = { ...prev };
+        delete updated[moveId];
+        return updated;
+      });
+
       console.log('[MoveHistoryEditor] Player updated:', moveId, newPlayer);
     } catch (err) {
       console.error('[MoveHistoryEditor] Error updating player:', err);
       alert('Failed to update player: ' + err.message);
     }
+  };
+
+  const handleAiIdentifyAll = async () => {
+    if (!sessionGameId || !password) return;
+
+    setAiProcessing(true);
+    try {
+      console.log('[MoveHistoryEditor] Starting AI identification for all moves...');
+      console.log('[MoveHistoryEditor] 🎨 Using colors - Player A:', colorA, 'Player B:', colorB);
+      const result = await identifyMovesBatch(sessionGameId, [], colorA, colorB, false);
+      
+      // Store AI suggestions
+      const suggestions = {};
+      result.results.forEach(item => {
+        suggestions[item.moveId] = {
+          player: item.currentPlayer === 'A' ? 'Player A' : 
+                  item.currentPlayer === 'B' ? 'Player B' : 'None',
+          confidence: item.confidence,
+          rawResponse: item.rawResponse
+        };
+      });
+      
+      setAiSuggestions(suggestions);
+      console.log('[MoveHistoryEditor] AI identification complete:', result.processed, 'moves processed');
+      alert(`AI identified ${result.processed} moves. Review and confirm suggestions below.`);
+    } catch (err) {
+      console.error('[MoveHistoryEditor] Error in AI identification:', err);
+      alert('AI identification failed: ' + err.message);
+    } finally {
+      setAiProcessing(false);
+    }
+  };
+
+  const handleAiIdentifyUnknown = async () => {
+    if (!sessionGameId || !password) return;
+
+    setAiProcessing(true);
+    try {
+      console.log('[MoveHistoryEditor] Starting AI identification for unknown moves...');
+      console.log('[MoveHistoryEditor] 🎨 Using colors - Player A:', colorA, 'Player B:', colorB);
+      const result = await identifyMovesBatch(sessionGameId, [], colorA, colorB, true);
+      
+      // Store AI suggestions
+      const suggestions = {};
+      result.results.forEach(item => {
+        suggestions[item.moveId] = {
+          player: item.currentPlayer === 'A' ? 'Player A' : 
+                  item.currentPlayer === 'B' ? 'Player B' : 'None',
+          confidence: item.confidence,
+          rawResponse: item.rawResponse
+        };
+      });
+      
+      setAiSuggestions(suggestions);
+      console.log('[MoveHistoryEditor] AI identification complete:', result.processed, 'unknown moves processed');
+      alert(`AI identified ${result.processed} unknown moves. Review and confirm suggestions below.`);
+    } catch (err) {
+      console.error('[MoveHistoryEditor] Error in AI identification:', err);
+      alert('AI identification failed: ' + err.message);
+    } finally {
+      setAiProcessing(false);
+    }
+  };
+
+  const handleConfirmAiSuggestion = async (moveId) => {
+    const suggestion = aiSuggestions[moveId];
+    if (!suggestion) return;
+
+    await handlePlayerUpdate(moveId, suggestion.player);
   };
 
   const filteredMoves = session?.moves?.filter(move => {
@@ -167,6 +310,52 @@ function MoveHistoryEditor({ sessionGameId }) {
             Experiment ({experimentCount})
           </button>
         </div>
+        
+        {/* AI Identification Controls */}
+        <div className="ai-controls">
+          <button 
+            className="color-picker-toggle"
+            onClick={() => setShowColorPicker(!showColorPicker)}
+          >
+            🎨 Bracelet Colors
+          </button>
+          {showColorPicker && (
+            <div className="color-picker-panel">
+              <div className="color-input-group">
+                <label>Player A:</label>
+                <input 
+                  type="color" 
+                  value={colorA} 
+                  onChange={(e) => setColorA(e.target.value)}
+                />
+                <span>{colorA}</span>
+              </div>
+              <div className="color-input-group">
+                <label>Player B:</label>
+                <input 
+                  type="color" 
+                  value={colorB} 
+                  onChange={(e) => setColorB(e.target.value)}
+                />
+                <span>{colorB}</span>
+              </div>
+            </div>
+          )}
+          <button 
+            className="ai-btn ai-btn-all"
+            onClick={handleAiIdentifyAll}
+            disabled={aiProcessing}
+          >
+            {aiProcessing ? '🤖 Processing...' : '🤖 AI Identify All'}
+          </button>
+          <button 
+            className="ai-btn ai-btn-unknown"
+            onClick={handleAiIdentifyUnknown}
+            disabled={aiProcessing}
+          >
+            {aiProcessing ? '🤖 Processing...' : '🤖 AI Identify Unknown'}
+          </button>
+        </div>
       </header>
 
       <div className="move-editor-content">
@@ -200,6 +389,25 @@ function MoveHistoryEditor({ sessionGameId }) {
                   <span className="label">Type:</span>
                   <span className="value">{move.type}</span>
                 </div>
+
+                {/* AI Suggestion Banner */}
+                {aiSuggestions[move._id] && (
+                  <div className="ai-suggestion-banner">
+                    <div className="ai-suggestion-content">
+                      <span className="ai-icon">🤖</span>
+                      <span className="ai-text">AI suggests: <strong>{aiSuggestions[move._id].player}</strong></span>
+                    </div>
+                    <button 
+                      className="ai-confirm-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleConfirmAiSuggestion(move._id);
+                      }}
+                    >
+                      ✓ Confirm
+                    </button>
+                  </div>
+                )}
 
                 <div className="move-info-row player-row">
                   <span className="label">Player:</span>
