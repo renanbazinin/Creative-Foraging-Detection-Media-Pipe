@@ -1,9 +1,10 @@
 .move-editor-container {
-  min-height: 100vh;
+  height: 100vh;
   background: #0a0a0a;
   color: #fff;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .move-editor-header {
@@ -14,8 +15,7 @@
   align-items: center;
   gap: 24px;
   flex-wrap: wrap;
-  position: sticky;
-  top: 0;
+  flex-shrink: 0;
   z-index: 100;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
@@ -99,6 +99,26 @@
   flex: 1;
   padding: 32px;
   overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+  -webkit-overflow-scrolling: touch;
+}
+
+.move-editor-content::-webkit-scrollbar {
+  width: 10px;
+}
+
+.move-editor-content::-webkit-scrollbar-track {
+  background: #1a1a1a;
+}
+
+.move-editor-content::-webkit-scrollbar-thumb {
+  background: #4CAF50;
+  border-radius: 5px;
+}
+
+.move-editor-content::-webkit-scrollbar-thumb:hover {
+  background: #45a049;
 }
 
 .moves-grid {
@@ -107,6 +127,7 @@
   gap: 24px;
   max-width: 1800px;
   margin: 0 auto;
+  padding-bottom: 40px;
 }
 
 @media (max-width: 768px) {
