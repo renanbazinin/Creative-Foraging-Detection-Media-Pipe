@@ -350,6 +350,52 @@ function MoveHistoryEditor({ sessionGameId }) {
     await handlePlayerUpdate(moveId, suggestion.player);
   };
 
+  const handleAiIdentifySingle = async (moveId) => {
+    if (!sessionGameId || !password) return;
+
+    try {
+      console.log(`[MoveHistoryEditor] Identifying single move: ${moveId}`);
+      
+      // Call API for single move
+      const response = await fetch(`${API_BASE_URL}/ai/identify-move`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-admin-password': password
+        },
+        body: JSON.stringify({
+          sessionGameId,
+          moveId,
+          colorA,
+          colorB
+        })
+      });
+      
+      if (response.ok) {
+        const result = await response.json();
+        
+        // Update suggestion for this move
+        setAiSuggestions(prev => ({
+          ...prev,
+          [moveId]: {
+            player: result.suggestion === 'A' ? 'Player A' : 
+                    result.suggestion === 'B' ? 'Player B' : 'None',
+            confidence: result.confidence,
+            rawResponse: result.rawResponse
+          }
+        }));
+        
+        console.log(`[MoveHistoryEditor] ✅ Move identified: ${result.suggestion}`);
+      } else {
+        const error = await response.json();
+        alert(`Failed to identify move: ${error.message}`);
+      }
+    } catch (err) {
+      console.error(`[MoveHistoryEditor] Error identifying move:`, err);
+      alert('AI identification failed: ' + err.message);
+    }
+  };
+
   const filteredMoves = session?.moves?.filter(move => {
     if (filterPhase === 'all') return true;
     return move.phase === filterPhase;
@@ -532,22 +578,37 @@ function MoveHistoryEditor({ sessionGameId }) {
                   }}
                 >
                   <span className="label">Player:</span>
-                  <select
-                    className={`player-select ${move.player?.toLowerCase().replace(' ', '-')}`}
-                    value={move.player || 'Unknown'}
-                    onChange={(e) => handlePlayerUpdate(move._id, e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    style={{
-                      borderColor: move.player === 'Player A' ? colorA : 
-                                   move.player === 'Player B' ? colorB : 
-                                   move.player === 'None' ? '#9E9E9E' : '#FFC107'
-                    }}
-                  >
-                    <option value="Player A">Player A</option>
-                    <option value="Player B">Player B</option>
-                    <option value="None">None</option>
-                    <option value="Unknown">Unknown</option>
-                  </select>
+                  <div style={{ display: 'flex', gap: '8px', flex: 1, alignItems: 'center' }}>
+                    <select
+                      className={`player-select ${move.player?.toLowerCase().replace(' ', '-')}`}
+                      value={move.player || 'Unknown'}
+                      onChange={(e) => handlePlayerUpdate(move._id, e.target.value)}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        flex: 1,
+                        borderColor: move.player === 'Player A' ? colorA : 
+                                     move.player === 'Player B' ? colorB : 
+                                     move.player === 'None' ? '#9E9E9E' : '#FFC107'
+                      }}
+                    >
+                      <option value="Player A">Player A</option>
+                      <option value="Player B">Player B</option>
+                      <option value="None">None</option>
+                      <option value="Unknown">Unknown</option>
+                    </select>
+                    {move.camera_frame && (
+                      <button
+                        className="ai-single-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleAiIdentifySingle(move._id);
+                        }}
+                        title="Identify this move with AI"
+                      >
+                        🤖
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 {(move.blockId !== null && move.blockId !== undefined) && (

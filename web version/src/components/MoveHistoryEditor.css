@@ -530,6 +530,33 @@
   box-shadow: 0 4px 12px rgba(255, 152, 0, 0.5);
 }
 
+/* AI Single Move Button */
+.ai-single-btn {
+  padding: 6px 10px;
+  background: linear-gradient(135deg, #9C27B0 0%, #7B1FA2 100%);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-size: 16px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  height: 36px;
+}
+
+.ai-single-btn:hover {
+  background: linear-gradient(135deg, #AB47BC 0%, #8E24AA 100%);
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(156, 39, 176, 0.4);
+}
+
+.ai-single-btn:active {
+  transform: scale(0.95);
+}
+
 /* AI Suggestion Banner */
 .ai-suggestion-banner {
   display: flex;
