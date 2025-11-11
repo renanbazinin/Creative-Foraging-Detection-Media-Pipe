@@ -3,6 +3,7 @@ const cors = require('cors');
 const morgan = require('morgan');
 
 const sessionRoutes = require('./routes/session.routes');
+const aiRoutes = require('./routes/ai.routes');
 const pkg = require('../package.json');
 
 const app = express();
@@ -21,6 +22,7 @@ app.get('/health', (req, res) => {
 });
 
 app.use('/api/sessions', sessionRoutes);
+app.use('/api/ai', aiRoutes);
 
 app.use((req, res, next) => {
   res.status(404).json({ message: 'Not Found' });

@@ -47,6 +47,8 @@ const SessionSchema = new Schema(
     condition: String,
     date: String,
     timeSeconds: Number,
+    colorA: String,  // Player A bracelet color (hex)
+    colorB: String,  // Player B bracelet color (hex)
     metadata: Schema.Types.Mixed,
     moves: {
       type: [MoveSchema],

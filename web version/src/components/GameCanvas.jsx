@@ -263,7 +263,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     );
   };
 
-  // Capture camera frame with reduced quality
+  // Capture camera frame with reduced quality (RAW VIDEO - no overlays)
   const captureCameraFrame = () => {
     // Skip capturing if disabled
     if (!SAVE_CAMERA_FRAMES) {
@@ -271,19 +271,11 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     }
     
     try {
-      // Try to get canvas from BraceletDetector (preferred - has processed frame)
-      const detectorCanvas = window.braceletDetectorCanvas;
+      // ALWAYS use raw video element (no overlays, no MediaPipe drawings)
       const detectorVideo = window.braceletDetectorVideo;
       
-      let sourceElement = null;
-      if (detectorCanvas && detectorCanvas.width > 0 && detectorCanvas.height > 0) {
-        sourceElement = detectorCanvas;
-      } else if (detectorVideo && detectorVideo.videoWidth > 0 && detectorVideo.videoHeight > 0) {
-        sourceElement = detectorVideo;
-      }
-      
-      if (!sourceElement) {
-        console.warn('[GameCanvas] No camera source available for frame capture');
+      if (!detectorVideo || !detectorVideo.videoWidth || detectorVideo.videoWidth === 0) {
+        console.warn('[GameCanvas] No raw video source available for frame capture');
         return null;
       }
       
@@ -292,8 +284,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       const maxWidth = 640; // Reduce resolution to save space
       const maxHeight = 480;
       
-      let width = sourceElement.videoWidth || sourceElement.width;
-      let height = sourceElement.videoHeight || sourceElement.height;
+      let width = detectorVideo.videoWidth;
+      let height = detectorVideo.videoHeight;
       
       // Calculate scaled dimensions maintaining aspect ratio
       const aspectRatio = width / height;
@@ -310,8 +302,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       tempCanvas.height = Math.floor(height);
       const tempCtx = tempCanvas.getContext('2d');
       
-      // Draw source to temp canvas (scaled down)
-      tempCtx.drawImage(sourceElement, 0, 0, tempCanvas.width, tempCanvas.height);
+      // Draw RAW video to temp canvas (scaled down, NO overlays)
+      tempCtx.drawImage(detectorVideo, 0, 0, tempCanvas.width, tempCanvas.height);
       
       // Convert to JPEG with reduced quality (0.6 = 60% quality)
       return tempCanvas.toDataURL('image/jpeg', 0.6);

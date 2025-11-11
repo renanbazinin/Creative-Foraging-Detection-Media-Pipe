@@ -119,6 +119,8 @@ const appendMove = async (sessionGameId, moveData = {}) => {
     throw error;
   }
 
+  console.log(`[Service] Appending move to session: ${sessionGameId}`);
+
   const session = await Session.findOneAndUpdate(
     { sessionGameId },
     {
@@ -129,10 +131,13 @@ const appendMove = async (sessionGameId, moveData = {}) => {
   );
 
   if (!session) {
+    console.error(`[Service] ❌ Session not found: ${sessionGameId}`);
     const error = new Error('Session not found');
     error.status = 404;
     throw error;
   }
+
+  console.log(`[Service] ✅ Move appended. Total moves: ${session.moves.length}`);
 
   return session.moves[session.moves.length - 1];
 };

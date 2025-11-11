@@ -88,13 +88,30 @@ function MoveHistoryEditor({ sessionGameId }) {
       const data = await response.json();
       setSession(data);
       
-      // Priority 1: Load colors from session if available
+      // Try to get colors from multiple locations (priority order)
+      let foundColorA = null;
+      let foundColorB = null;
+      let colorSource = '';
+      
+      // Priority 1: Root level (new format)
       if (data.colorA && data.colorB) {
-        setColorA(data.colorA);
-        setColorB(data.colorB);
-        console.log('[MoveHistoryEditor] ✅ Loaded colors from session:', data.colorA, data.colorB);
+        foundColorA = data.colorA;
+        foundColorB = data.colorB;
+        colorSource = 'session root';
+      }
+      // Priority 2: metadata.config (old format - fallback)
+      else if (data.metadata?.config?.colorA && data.metadata?.config?.colorB) {
+        foundColorA = data.metadata.config.colorA;
+        foundColorB = data.metadata.config.colorB;
+        colorSource = 'session metadata';
+      }
+      
+      if (foundColorA && foundColorB) {
+        setColorA(foundColorA);
+        setColorB(foundColorB);
+        console.log(`[MoveHistoryEditor] ✅ Loaded colors from ${colorSource}:`, foundColorA, foundColorB);
       } else {
-        // Priority 2: Fall back to localStorage calibration
+        // Priority 3: Fall back to localStorage calibration
         try {
           const calibA = JSON.parse(localStorage.getItem('calibrationA') || 'null');
           const calibB = JSON.parse(localStorage.getItem('calibrationB') || 'null');
@@ -317,7 +334,7 @@ function MoveHistoryEditor({ sessionGameId }) {
             className="color-picker-toggle"
             onClick={() => setShowColorPicker(!showColorPicker)}
           >
-            🎨 Bracelet Colors
+             Bracelet Colors
           </button>
           {showColorPicker && (
             <div className="color-picker-panel">
@@ -346,14 +363,14 @@ function MoveHistoryEditor({ sessionGameId }) {
             onClick={handleAiIdentifyAll}
             disabled={aiProcessing}
           >
-            {aiProcessing ? '🤖 Processing...' : '🤖 AI Identify All'}
+            {aiProcessing ? ' Processing...' : ' AI Identify All'}
           </button>
           <button 
             className="ai-btn ai-btn-unknown"
             onClick={handleAiIdentifyUnknown}
             disabled={aiProcessing}
           >
-            {aiProcessing ? '🤖 Processing...' : '🤖 AI Identify Unknown'}
+            {aiProcessing ? ' Processing...' : ' AI Identify Unknown'}
           </button>
         </div>
       </header>

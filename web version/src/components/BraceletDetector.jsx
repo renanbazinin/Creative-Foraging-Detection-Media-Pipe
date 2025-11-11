@@ -550,13 +550,13 @@ function BraceletDetector({ hidden = false }) {
         if (roiWidth > 0 && roiHeight > 0) {
           try {
             const roiData = ctx.getImageData(x1, y1, roiWidth, roiHeight);
-            const calibA = calibrationARef.current;
-            const calibB = calibrationBRef.current;
-            // Binary decision A vs B whenever a hand is visible
-            const decision = decideBinaryAorB(roiData, calibA, calibB);
-            detectedStatus = decision.status;
-            // Update live percentages for UI (0..1 or null)
-            setAbPercents({ a: decision.percentA, b: decision.percentB });
+        const calibA = calibrationARef.current;
+        const calibB = calibrationBRef.current;
+        // Binary decision A vs B whenever a hand is visible
+        const decision = decideBinaryAorB(roiData, calibA, calibB);
+        detectedStatus = decision.status;
+        // Update live percentages for UI (0..1 or null)
+        setAbPercents({ a: decision.percentA, b: decision.percentB });
             dbg('Detection result:', detectedStatus, { roi: { x1, y1, w: roiWidth, h: roiHeight } });
           } catch (error) {
             console.warn('[Detector] Failed to get ROI image data:', error.message);
