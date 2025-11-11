@@ -36,6 +36,20 @@ function App() {
     return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
+  // Expose toggleInterface function globally (for game end)
+  useEffect(() => {
+    window.toggleInterface = (hide) => {
+      setInterfaceHidden(hide);
+      console.log('[App] Interface ' + (hide ? 'hidden' : 'shown'));
+    };
+
+    return () => {
+      if (window.toggleInterface) {
+        delete window.toggleInterface;
+      }
+    };
+  }, []);
+
   const handleStartGame = (config) => {
     setGameConfig(config);
     setGameStarted(true);
@@ -79,16 +93,15 @@ function App() {
     // Expose secEnd function globally
     window.secEnd = () => {
       try {
-        // Get game tracker instance
-        const tracker = getGameTracker();
+        console.log('[App] secEnd() called - triggering game end');
         
-        // Stop tracking (data already on server via real-time move tracking)
-        tracker.stop();
-        
-        console.log('[App] Experience ended via secEnd(). All data saved to server.');
-        
-        // Note: No localStorage or downloads - all data is on server
-        alert('Experience ended. All data has been saved to the server.');
+        // Call the GameCanvas function to end the game properly
+        if (window.endGameExperience) {
+          window.endGameExperience();
+        } else {
+          console.warn('[App] endGameExperience() not available - game may not be running');
+          alert('Game is not currently running or already ended.');
+        }
       } catch (error) {
         console.error('Error ending experience:', error);
         alert('Error ending experience: ' + error.message);

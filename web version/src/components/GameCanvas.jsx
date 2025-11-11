@@ -27,6 +27,7 @@ function GameCanvas({ config, interfaceHidden = false }) {
   const [galleryImage, setGalleryImage] = useState(null);
   const [showMessage, setShowMessage] = useState(true);
   const [messageText, setMessageText] = useState('');
+  const [gameEnded, setGameEnded] = useState(false);
   const [canvasVars, setCanvasVars] = useState({
     blockSize: BLOCK_SIZE_PX,
     bottomPadding: DEFAULT_BOTTOM_PADDING
@@ -122,8 +123,20 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     };
     
     initializeTracker();
+
+    // Expose function to end game from outside (e.g., secEnd())
+    window.endGameExperience = () => {
+      setShowMessage(true);
+      setMessageText(byeMessage);
+      setGameEnded(true);
+      gameTrackerRef.current.stop();
+      console.log('[GameCanvas] Game ended via endGameExperience(). All data saved to server.');
+    };
     
     return () => {
+      if (window.endGameExperience) {
+        delete window.endGameExperience;
+      }
       // Stop tracker on unmount
       gameTrackerRef.current.stop();
     };
@@ -152,6 +165,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
             clearInterval(timer);
             setShowMessage(true);
             setMessageText(byeMessage);
+            setGameEnded(true);
             // Game ended - data already on server via real-time move tracking
             console.log('[GameCanvas] Game ended by timer. All data saved to server.');
             return 0;
@@ -460,6 +474,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     } else if (e.key === 'q' && !isPractice) {
       setShowMessage(true);
       setMessageText(byeMessage);
+      setGameEnded(true);
       // Game ended manually - data already on server via real-time move tracking
       console.log('[GameCanvas] Game ended manually (q key). All data saved to server.');
     }
@@ -471,6 +486,19 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
   }, [handleKeyPress]);
 
   const closeMessage = () => {
+    // Handle game end (bye message) - redirect to start dialog
+    if (gameEnded && messageText === byeMessage) {
+      console.log('[GameCanvas] Game ended - redirecting to start dialog');
+      // Unhide interface if it was hidden
+      if (window.toggleInterface) {
+        window.toggleInterface(false); // Unhide
+      }
+      // Redirect to start dialog
+      window.location.hash = '#/';
+      window.location.reload();
+      return;
+    }
+
     // Play sound if transitioning from practice to real game
     if (!isPractice && messageText === practiceDoneMessage) {
       // Create a simple beep sound using Web Audio API
@@ -492,7 +520,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
         oscillator.start(audioContext.currentTime);
         oscillator.stop(audioContext.currentTime + 0.3);
         
-        console.log('[GameCanvas] 🔔 Playing start sound - Real experiment begins!');
+        console.log('[GameCanvas] Playing start sound - Real experiment begins!');
       } catch (e) {
         console.error('[GameCanvas] Error playing sound:', e);
       }
