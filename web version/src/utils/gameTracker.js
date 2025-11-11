@@ -279,11 +279,15 @@ class GameTracker {
    */
   async persistMove(move) {
     if (!this.sessionInitialized || !this.sessionInfo?.sessionGameId) {
+      console.warn('[GameTracker] Cannot persist move - session not initialized');
       return;
     }
 
+    const url = `${this.apiBaseUrl}/sessions/${encodeURIComponent(this.sessionInfo.sessionGameId)}/moves`;
+    console.log(`[GameTracker] Persisting move to: ${url}`);
+
     try {
-      const response = await fetch(`${this.apiBaseUrl}/sessions/${encodeURIComponent(this.sessionInfo.sessionGameId)}/moves`, {
+      const response = await fetch(url, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -292,10 +296,16 @@ class GameTracker {
       });
 
       if (!response.ok) {
-        throw new Error(`Failed to persist move (${response.status})`);
+        const errorText = await response.text();
+        console.error(`[GameTracker] Server error (${response.status}):`, errorText);
+        throw new Error(`Failed to persist move (${response.status}): ${errorText}`);
       }
+
+      const result = await response.json();
+      console.log('[GameTracker] ✅ Move persisted successfully:', result);
+      return result;
     } catch (error) {
-      console.error('[GameTracker] persistMove error:', error);
+      console.error('[GameTracker] ❌ persistMove error:', error);
       throw error;
     }
   }
@@ -423,20 +433,7 @@ class GameTracker {
     return counts;
   }
 
-  /**
-   * Download game data as JSON file
-   */
-  downloadJSON() {
-    const json = this.exportToJSON();
-    const blob = new Blob([json], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    const baseName = this.sessionInfo?.sessionGameId || this.sessionInfo?.id || 'game_session';
-    link.download = `${baseName}_${new Date().toISOString().split('T')[0]}_${Date.now()}.json`;
-    link.click();
-    URL.revokeObjectURL(url);
-  }
+
 
   /**
    * Load game data from JSON

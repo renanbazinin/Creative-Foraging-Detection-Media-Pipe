@@ -82,22 +82,13 @@ function App() {
         // Get game tracker instance
         const tracker = getGameTracker();
         
-        // Stop tracking
+        // Stop tracking (data already on server via real-time move tracking)
         tracker.stop();
         
-        // Export and download JSON
-        const jsonData = tracker.exportToJSON();
+        console.log('[App] Experience ended via secEnd(). All data saved to server.');
         
-        // Save to localStorage for Summary component
-        localStorage.setItem('lastGameSession', jsonData);
-        
-        // Download the file
-        tracker.downloadJSON();
-        
-        // Navigate to summary page
-        window.location.hash = '#/summary';
-        
-        console.log('Experience ended. JSON downloaded and saved. Redirecting to summary...');
+        // Note: No localStorage or downloads - all data is on server
+        alert('Experience ended. All data has been saved to the server.');
       } catch (error) {
         console.error('Error ending experience:', error);
         alert('Error ending experience: ' + error.message);

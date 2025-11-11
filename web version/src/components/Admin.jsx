@@ -230,6 +230,67 @@ function Admin() {
     }
   };
 
+  const downloadJSON = () => {
+    if (!sessionData) return;
+    
+    const json = JSON.stringify(sessionData, null, 2);
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const filename = `${selectedSessionId}_${new Date().toISOString().split('T')[0]}.json`;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+    console.log('[Admin] Downloaded JSON:', filename);
+  };
+
+  const downloadCSV = () => {
+    if (!sessionData || !sessionData.moves || sessionData.moves.length === 0) {
+      alert('No moves to export');
+      return;
+    }
+
+    // Get all unique keys from moves
+    const allKeys = new Set();
+    sessionData.moves.forEach(move => {
+      Object.keys(move).forEach(key => {
+        // Skip very large fields or internal MongoDB fields
+        if (key !== 'camera_frame' && key !== '__v') {
+          allKeys.add(key);
+        }
+      });
+    });
+
+    const headers = Array.from(allKeys);
+    const rows = [headers.join(',')];
+
+    sessionData.moves.forEach(move => {
+      const row = headers.map(key => {
+        const value = move[key];
+        if (value === null || value === undefined || value === '') {
+          return '';
+        }
+        if (Array.isArray(value) || typeof value === 'object') {
+          return `"${JSON.stringify(value).replace(/"/g, '""')}"`;
+        }
+        return `"${String(value).replace(/"/g, '""')}"`;
+      });
+      rows.push(row.join(','));
+    });
+
+    const csvContent = rows.join('\n');
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    const filename = `${selectedSessionId}_${new Date().toISOString().split('T')[0]}.csv`;
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(url);
+    console.log('[Admin] Downloaded CSV:', filename);
+  };
+
   const handlePlayerUpdate = async (moveId, newPlayer) => {
     if (!selectedSessionId || !moveId || !password) return;
 
@@ -350,6 +411,21 @@ function Admin() {
                 title="Open dedicated editor for player assignments"
               >
                 Edit Players
+              </button>
+              <div className="admin-toolbar-divider"></div>
+              <button 
+                className="admin-toolbar-button download-json"
+                onClick={downloadJSON}
+                title="Download session data as JSON"
+              >
+                Download JSON
+              </button>
+              <button 
+                className="admin-toolbar-button download-csv"
+                onClick={downloadCSV}
+                title="Download moves as CSV"
+              >
+                Download CSV
               </button>
             </div>
             <div className="admin-summary-wrapper">

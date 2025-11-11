@@ -152,11 +152,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
             clearInterval(timer);
             setShowMessage(true);
             setMessageText(byeMessage);
-            // Download CSV and JSON
-            setTimeout(() => {
-              loggerRef.current.downloadCSV();
-              gameTrackerRef.current.downloadJSON();
-            }, 1000);
+            // Game ended - data already on server via real-time move tracking
+            console.log('[GameCanvas] Game ended by timer. All data saved to server.');
             return 0;
           }
           return prev - 1;
@@ -463,10 +460,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     } else if (e.key === 'q' && !isPractice) {
       setShowMessage(true);
       setMessageText(byeMessage);
-      setTimeout(() => {
-        loggerRef.current.downloadCSV();
-        gameTrackerRef.current.downloadJSON();
-      }, 1000);
+      // Game ended manually - data already on server via real-time move tracking
+      console.log('[GameCanvas] Game ended manually (q key). All data saved to server.');
     }
   }, [isPractice, config.id]);
 
