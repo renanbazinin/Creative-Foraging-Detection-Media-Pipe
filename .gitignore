@@ -1,3 +1,28 @@
+# General
+node_modules/
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Build outputs
+dist/
+build/
+
+# Environment files
+.env
+*.env
+.env.*
+!.env.example
+server/.env
+server/.env.*
+!server/.env.example
+
+# IDE
+.vscode/
+.idea/
 # Python
 __pycache__/
 *.py[cod]
@@ -56,8 +81,17 @@ web version/yarn-debug.log*
 web version/yarn-error.log*
 web version/pnpm-debug.log*
 
-# Environment variables
-.env
+# Server
+server/node_modules/
+server/dist/
+server/build/
+server/.env
+server/.env.*
+!server/.env.example
+server/npm-debug.log*
+server/yarn-debug.log*
+
+# Environment variables (additional patterns)
 .env.local
 .env.development.local
 .env.test.local

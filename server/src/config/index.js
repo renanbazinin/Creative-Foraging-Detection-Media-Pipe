@@ -6,7 +6,8 @@ dotenv.config({ path: envPath });
 
 const config = {
   port: process.env.PORT || 4000,
-  mongodbUri: process.env.MONGODB_URI
+  mongodbUri: process.env.MONGODB_URI,
+  adminPassword: process.env.ADMIN_PASSWORD
 };
 
 if (!config.mongodbUri) {

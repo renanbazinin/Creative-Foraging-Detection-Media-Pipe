@@ -1,14 +1,18 @@
 const { Router } = require('express');
 const sessionController = require('../controllers/session.controller');
+const { verifyAdminPassword } = require('../middleware/auth.middleware');
 
 const router = Router();
 
-router.get('/', sessionController.listSessions);
-router.get('/:sessionGameId', sessionController.getSession);
-router.get('/:sessionGameId/experiment-only', sessionController.getSessionExperimentOnly);
+// Public routes (no password required)
 router.post('/', sessionController.createOrUpdateSession);
 router.post('/:sessionGameId/moves', sessionController.addMove);
-router.patch('/:sessionGameId/moves/:moveId', sessionController.updateMovePlayer);
+
+// Protected routes (password required)
+router.get('/', verifyAdminPassword, sessionController.listSessions);
+router.get('/:sessionGameId', verifyAdminPassword, sessionController.getSession);
+router.get('/:sessionGameId/experiment-only', verifyAdminPassword, sessionController.getSessionExperimentOnly);
+router.patch('/:sessionGameId/moves/:moveId', verifyAdminPassword, sessionController.updateMovePlayer);
 
 module.exports = router;
 
