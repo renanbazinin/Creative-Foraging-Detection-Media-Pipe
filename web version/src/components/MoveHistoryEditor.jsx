@@ -25,6 +25,7 @@ function MoveHistoryEditor({ sessionGameId }) {
   // AI identification state
   const [aiProcessing, setAiProcessing] = useState(false);
   const [aiSuggestions, setAiSuggestions] = useState({});
+  const [aiProgress, setAiProgress] = useState({ current: 0, total: 0 });
   const [colorA, setColorA] = useState('#FF0000'); // Default red
   const [colorB, setColorB] = useState('#0000FF'); // Default blue
   const [showColorPicker, setShowColorPicker] = useState(false);
@@ -192,30 +193,75 @@ function MoveHistoryEditor({ sessionGameId }) {
     if (!sessionGameId || !password) return;
 
     setAiProcessing(true);
+    setAiSuggestions({}); // Clear previous suggestions
+    
     try {
       console.log('[MoveHistoryEditor] Starting AI identification for all moves...');
       console.log('[MoveHistoryEditor] 🎨 Using colors - Player A:', colorA, 'Player B:', colorB);
-      const result = await identifyMovesBatch(sessionGameId, [], colorA, colorB, false);
       
-      // Store AI suggestions
-      const suggestions = {};
-      result.results.forEach(item => {
-        suggestions[item.moveId] = {
-          player: item.currentPlayer === 'A' ? 'Player A' : 
-                  item.currentPlayer === 'B' ? 'Player B' : 'None',
-          confidence: item.confidence,
-          rawResponse: item.rawResponse
-        };
-      });
+      // Get all moves with camera frames
+      const movesToProcess = filteredMoves.filter(m => m.camera_frame);
       
-      setAiSuggestions(suggestions);
-      console.log('[MoveHistoryEditor] AI identification complete:', result.processed, 'moves processed');
-      alert(`AI identified ${result.processed} moves. Review and confirm suggestions below.`);
+      if (movesToProcess.length === 0) {
+        alert('No moves with camera frames to process');
+        return;
+      }
+      
+      setAiProgress({ current: 0, total: movesToProcess.length });
+      console.log(`[MoveHistoryEditor] Processing ${movesToProcess.length} moves one by one...`);
+      let processedCount = 0;
+      
+      // Process each move individually and update UI immediately
+      for (const move of movesToProcess) {
+        setAiProgress({ current: processedCount + 1, total: movesToProcess.length });
+        try {
+          // Call API for single move
+          const response = await fetch(`${API_BASE_URL}/ai/identify-move`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-password': password
+            },
+            body: JSON.stringify({
+              sessionGameId,
+              moveId: move._id,
+              colorA,
+              colorB
+            })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            
+            // Update suggestions immediately for this move
+            setAiSuggestions(prev => ({
+              ...prev,
+              [move._id]: {
+                player: result.suggestion === 'A' ? 'Player A' : 
+                        result.suggestion === 'B' ? 'Player B' : 'None',
+                confidence: result.confidence,
+                rawResponse: result.rawResponse
+              }
+            }));
+            
+            processedCount++;
+            console.log(`[MoveHistoryEditor] ✅ Processed ${processedCount}/${movesToProcess.length}: ${result.suggestion}`);
+          } else {
+            console.warn(`[MoveHistoryEditor] ⚠️ Failed to process move ${move._id}`);
+          }
+        } catch (err) {
+          console.error(`[MoveHistoryEditor] Error processing move ${move._id}:`, err);
+        }
+      }
+      
+      console.log('[MoveHistoryEditor] AI identification complete:', processedCount, 'moves processed');
+      alert(`AI identified ${processedCount} moves. Review and confirm suggestions below.`);
     } catch (err) {
       console.error('[MoveHistoryEditor] Error in AI identification:', err);
       alert('AI identification failed: ' + err.message);
     } finally {
       setAiProcessing(false);
+      setAiProgress({ current: 0, total: 0 });
     }
   };
 
@@ -223,30 +269,77 @@ function MoveHistoryEditor({ sessionGameId }) {
     if (!sessionGameId || !password) return;
 
     setAiProcessing(true);
+    setAiSuggestions({}); // Clear previous suggestions
+    
     try {
       console.log('[MoveHistoryEditor] Starting AI identification for unknown moves...');
       console.log('[MoveHistoryEditor] 🎨 Using colors - Player A:', colorA, 'Player B:', colorB);
-      const result = await identifyMovesBatch(sessionGameId, [], colorA, colorB, true);
       
-      // Store AI suggestions
-      const suggestions = {};
-      result.results.forEach(item => {
-        suggestions[item.moveId] = {
-          player: item.currentPlayer === 'A' ? 'Player A' : 
-                  item.currentPlayer === 'B' ? 'Player B' : 'None',
-          confidence: item.confidence,
-          rawResponse: item.rawResponse
-        };
-      });
+      // Get only unknown/none moves with camera frames
+      const movesToProcess = filteredMoves.filter(m => 
+        m.camera_frame && (!m.player || m.player === 'Unknown' || m.player === 'None')
+      );
       
-      setAiSuggestions(suggestions);
-      console.log('[MoveHistoryEditor] AI identification complete:', result.processed, 'unknown moves processed');
-      alert(`AI identified ${result.processed} unknown moves. Review and confirm suggestions below.`);
+      if (movesToProcess.length === 0) {
+        alert('No unknown moves with camera frames to process');
+        return;
+      }
+      
+      setAiProgress({ current: 0, total: movesToProcess.length });
+      console.log(`[MoveHistoryEditor] Processing ${movesToProcess.length} unknown moves one by one...`);
+      let processedCount = 0;
+      
+      // Process each move individually and update UI immediately
+      for (const move of movesToProcess) {
+        setAiProgress({ current: processedCount + 1, total: movesToProcess.length });
+        try {
+          // Call API for single move
+          const response = await fetch(`${API_BASE_URL}/ai/identify-move`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'x-admin-password': password
+            },
+            body: JSON.stringify({
+              sessionGameId,
+              moveId: move._id,
+              colorA,
+              colorB
+            })
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            
+            // Update suggestions immediately for this move
+            setAiSuggestions(prev => ({
+              ...prev,
+              [move._id]: {
+                player: result.suggestion === 'A' ? 'Player A' : 
+                        result.suggestion === 'B' ? 'Player B' : 'None',
+                confidence: result.confidence,
+                rawResponse: result.rawResponse
+              }
+            }));
+            
+            processedCount++;
+            console.log(`[MoveHistoryEditor] ✅ Processed ${processedCount}/${movesToProcess.length}: ${result.suggestion}`);
+          } else {
+            console.warn(`[MoveHistoryEditor] ⚠️ Failed to process move ${move._id}`);
+          }
+        } catch (err) {
+          console.error(`[MoveHistoryEditor] Error processing move ${move._id}:`, err);
+        }
+      }
+      
+      console.log('[MoveHistoryEditor] AI identification complete:', processedCount, 'unknown moves processed');
+      alert(`AI identified ${processedCount} unknown moves. Review and confirm suggestions below.`);
     } catch (err) {
       console.error('[MoveHistoryEditor] Error in AI identification:', err);
       alert('AI identification failed: ' + err.message);
     } finally {
       setAiProcessing(false);
+      setAiProgress({ current: 0, total: 0 });
     }
   };
 
@@ -363,14 +456,18 @@ function MoveHistoryEditor({ sessionGameId }) {
             onClick={handleAiIdentifyAll}
             disabled={aiProcessing}
           >
-            {aiProcessing ? ' Processing...' : ' AI Identify All'}
+            {aiProcessing && aiProgress.total > 0 
+              ? `Processing ${aiProgress.current}/${aiProgress.total}...` 
+              : 'AI Identify All'}
           </button>
           <button 
             className="ai-btn ai-btn-unknown"
             onClick={handleAiIdentifyUnknown}
             disabled={aiProcessing}
           >
-            {aiProcessing ? ' Processing...' : ' AI Identify Unknown'}
+            {aiProcessing && aiProgress.total > 0 
+              ? `Processing ${aiProgress.current}/${aiProgress.total}...` 
+              : 'AI Identify Unknown'}
           </button>
         </div>
       </header>
@@ -426,13 +523,25 @@ function MoveHistoryEditor({ sessionGameId }) {
                   </div>
                 )}
 
-                <div className="move-info-row player-row">
+                <div 
+                  className="move-info-row player-row"
+                  style={{
+                    borderColor: move.player === 'Player A' ? colorA : 
+                                 move.player === 'Player B' ? colorB : 
+                                 move.player === 'None' ? '#9E9E9E' : '#FFC107'
+                  }}
+                >
                   <span className="label">Player:</span>
                   <select
                     className={`player-select ${move.player?.toLowerCase().replace(' ', '-')}`}
                     value={move.player || 'Unknown'}
                     onChange={(e) => handlePlayerUpdate(move._id, e.target.value)}
                     onClick={(e) => e.stopPropagation()}
+                    style={{
+                      borderColor: move.player === 'Player A' ? colorA : 
+                                   move.player === 'Player B' ? colorB : 
+                                   move.player === 'None' ? '#9E9E9E' : '#FFC107'
+                    }}
                   >
                     <option value="Player A">Player A</option>
                     <option value="Player B">Player B</option>

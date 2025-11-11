@@ -12,7 +12,7 @@ class AIService {
     if (this.genAI) {
       // Using gemini-2.0-flash - latest fast model with vision support
       // Available in free tier: gemini-2.5-pro, gemini-2.5-flash, gemini-2.5-flash-lite, gemini-2.0-flash
-      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.0-flash' });
+      this.model = this.genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
     }
   }
 

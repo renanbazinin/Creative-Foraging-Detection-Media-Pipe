@@ -1,6 +1,6 @@
 {
   "name": "creative-foraging-server",
-  "version": "1.0.2",
+  "version": "1.0.5",
   "description": "API server for Creative Foraging logs",
   "main": "src/server.js",
   "scripts": {
