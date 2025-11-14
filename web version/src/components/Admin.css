@@ -188,9 +188,23 @@
 
 .admin-toolbar {
   display: flex;
-  gap: 12px;
+  justify-content: space-between;
+  align-items: stretch;
+  gap: 20px;
   padding: 20px 24px 0 24px;
   flex-wrap: wrap;
+}
+
+.admin-toolbar-group {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: stretch;
+}
+
+.admin-toolbar-group--secondary {
+  border-left: 1px solid #3a3a3a;
+  padding-left: 16px;
 }
 
 .admin-toolbar-button {
@@ -250,12 +264,6 @@
 .admin-toolbar-button.edit-players:hover {
   background: linear-gradient(135deg, #1976D2 0%, #1565C0 100%);
   box-shadow: 0 4px 12px rgba(33, 150, 243, 0.4);
-}
-
-.admin-toolbar-divider {
-  width: 1px;
-  background: #3a3a3a;
-  margin: 0 4px;
 }
 
 .admin-toolbar-button.download-json {
@@ -350,59 +358,184 @@
 @media (max-width: 1024px) {
   .admin-container {
     flex-direction: column;
-    height: auto;
+    height: 100vh;
+    max-height: 100vh;
+    min-height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    -webkit-overflow-scrolling: touch;
   }
 
   .admin-sidebar {
     width: 100%;
     height: auto;
-    max-height: 40vh;
+    max-height: none;
     border-right: none;
     border-bottom: 2px solid #2a2a2a;
     padding: 16px;
+    box-shadow: none;
+    overflow: visible;
   }
 
   .admin-session-list {
     flex-direction: row;
     overflow-x: auto;
-    overflow-y: hidden;
+    overflow-y: visible;
     padding: 4px 0 8px;
     gap: 10px;
     flex: 0 0 auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .admin-session-card {
-    min-width: 240px;
+    min-width: 220px;
     flex: 0 0 auto;
   }
 
   .admin-content {
-    height: auto;
-    min-height: 60vh;
+    flex: 1;
+    min-height: 0;
+    padding: 0 16px 16px;
+    overflow: visible;
   }
 
   .admin-summary-wrapper {
-    padding: 16px;
+    padding: 16px 0 0;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .embedded-summary.summary-container {
+    height: auto;
+    min-height: auto;
+  }
+
+  .admin-toolbar {
+    padding: 0;
+  }
+
+  .admin-toolbar-group--secondary {
+    border-left: none;
+    padding-left: 0;
+  }
+
+  .admin-status,
+  .admin-error {
+    margin: 24px 0;
+  }
+}
+
+@media (max-width: 768px) {
+  .admin-content {
+    height: auto;
+    overflow: visible;
+  }
+
+  .admin-summary-wrapper {
+    height: auto;
+    overflow: visible;
+  }
+
+  .embedded-summary.summary-container {
+    height: auto;
+    min-height: auto;
+  }
+
+  .admin-toolbar {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .admin-toolbar-group {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .admin-toolbar-button {
+    width: 100%;
+    text-align: center;
   }
 }
 
 @media (max-width: 640px) {
+  .admin-container {
+    padding-bottom: 20px;
+    height: 100vh;
+    max-height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .admin-sidebar {
+    padding: 12px;
+    overflow: visible;
+  }
+
   .admin-sidebar-header {
     flex-direction: column;
     align-items: flex-start;
     gap: 8px;
   }
 
+  .admin-password-row {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .admin-password-input,
   .admin-refresh-button {
     width: 100%;
   }
 
+  .admin-session-list {
+    flex-direction: column;
+    overflow-x: hidden;
+    overflow-y: visible;
+    padding: 0;
+    gap: 12px;
+  }
+
   .admin-session-card {
-    min-width: 200px;
+    min-width: 100%;
+    width: 100%;
   }
 
   .admin-content {
-    padding: clamp(16px, 5vw, 24px);
+    flex: 1;
+    min-height: 0;
+    padding: 0 12px 24px;
+    overflow: visible;
+  }
+
+  .admin-summary-wrapper {
+    padding: 12px 0 0;
+    height: auto;
+    min-height: 0;
+    overflow: visible;
+  }
+
+  .embedded-summary.summary-container {
+    height: auto;
+    min-height: auto;
+  }
+
+  .admin-status,
+  .admin-error {
+    margin: 16px 0;
+    padding: 12px 16px;
   }
 }
+
 

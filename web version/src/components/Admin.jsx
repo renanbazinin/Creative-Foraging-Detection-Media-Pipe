@@ -398,43 +398,45 @@ function Admin() {
         {!sessionLoading && !sessionError && sessionData && (
           <>
             <div className="admin-toolbar">
-              <button 
-                className="admin-toolbar-button back-button"
-                onClick={() => { window.location.hash = '/'; }}
-                title="Return to start dialog"
-              >
-                ← Back
-              </button>
-              <div className="admin-toolbar-divider"></div>
-              <button 
-                className={`admin-toolbar-button experiment-toggle ${isExperimentOnly ? 'active' : ''}`}
-                onClick={toggleExperimentOnly}
-                title={isExperimentOnly ? 'Show all moves (including practice)' : 'Show only experiment phase moves'}
-              >
-                {isExperimentOnly ? 'Show All Moves' : 'Experiment Only'}
-              </button>
-              <button 
-                className="admin-toolbar-button edit-players"
-                onClick={handleEditPlayers}
-                title="Open dedicated editor for player assignments"
-              >
-                Edit Players
-              </button>
-              <div className="admin-toolbar-divider"></div>
-              <button 
-                className="admin-toolbar-button download-json"
-                onClick={downloadJSON}
-                title="Download session data as JSON"
-              >
-                Download JSON
-              </button>
-              <button 
-                className="admin-toolbar-button download-csv"
-                onClick={downloadCSV}
-                title="Download moves as CSV"
-              >
-                Download CSV
-              </button>
+              <div className="admin-toolbar-group admin-toolbar-group--primary">
+                <button 
+                  className="admin-toolbar-button back-button"
+                  onClick={() => { window.location.hash = '/'; }}
+                  title="Return to start dialog"
+                >
+                  ← Back
+                </button>
+                <button 
+                  className={`admin-toolbar-button experiment-toggle ${isExperimentOnly ? 'active' : ''}`}
+                  onClick={toggleExperimentOnly}
+                  title={isExperimentOnly ? 'Show all moves (including practice)' : 'Show only experiment phase moves'}
+                >
+                  {isExperimentOnly ? 'Show All Moves' : 'Experiment Only'}
+                </button>
+                <button 
+                  className="admin-toolbar-button edit-players"
+                  onClick={handleEditPlayers}
+                  title="Open dedicated editor for player assignments"
+                >
+                  Edit Players
+                </button>
+              </div>
+              <div className="admin-toolbar-group admin-toolbar-group--secondary">
+                <button 
+                  className="admin-toolbar-button download-json"
+                  onClick={downloadJSON}
+                  title="Download session data as JSON"
+                >
+                  Download JSON
+                </button>
+                <button 
+                  className="admin-toolbar-button download-csv"
+                  onClick={downloadCSV}
+                  title="Download moves as CSV"
+                >
+                  Download CSV
+                </button>
+              </div>
             </div>
             <div className="admin-summary-wrapper">
               <Summary
