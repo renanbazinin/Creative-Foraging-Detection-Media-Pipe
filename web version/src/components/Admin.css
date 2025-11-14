@@ -211,6 +211,17 @@
   box-shadow: 0 4px 12px rgba(76, 175, 80, 0.3);
 }
 
+.admin-toolbar-button.back-button {
+  background: linear-gradient(135deg, #555 0%, #444 100%);
+  border: 2px solid #777;
+}
+
+.admin-toolbar-button.back-button:hover {
+  background: linear-gradient(135deg, #666 0%, #555 100%);
+  border-color: #888;
+  box-shadow: 0 4px 12px rgba(119, 119, 119, 0.3);
+}
+
 .admin-toolbar-button.experiment-toggle {
   background: linear-gradient(135deg, #2a2a2a 0%, #1f1f1f 100%);
   border: 2px solid #4CAF50;

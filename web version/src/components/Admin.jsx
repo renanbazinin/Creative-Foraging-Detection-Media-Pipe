@@ -399,6 +399,14 @@ function Admin() {
           <>
             <div className="admin-toolbar">
               <button 
+                className="admin-toolbar-button back-button"
+                onClick={() => { window.location.hash = '/'; }}
+                title="Return to start dialog"
+              >
+                ← Back
+              </button>
+              <div className="admin-toolbar-divider"></div>
+              <button 
                 className={`admin-toolbar-button experiment-toggle ${isExperimentOnly ? 'active' : ''}`}
                 onClick={toggleExperimentOnly}
                 title={isExperimentOnly ? 'Show all moves (including practice)' : 'Show only experiment phase moves'}

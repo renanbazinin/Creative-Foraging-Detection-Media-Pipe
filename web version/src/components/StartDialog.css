@@ -148,6 +148,19 @@
   transition: all 0.3s;
 }
 
+.dialog-button.small-button {
+  padding: 8px 20px;
+  font-size: 13px;
+  background-color: #808080;
+  color: white;
+}
+
+.dialog-button.small-button:hover {
+  background-color: #606060;
+  transform: translateY(-2px);
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
 .dialog-button.ok {
   background-color: #4CAF50;
   color: white;
