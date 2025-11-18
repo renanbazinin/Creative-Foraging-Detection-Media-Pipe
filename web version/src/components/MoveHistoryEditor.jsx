@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getApiBaseUrl } from '../config/api.config';
-import { identifyMovesBatch, updateMovePlayer } from '../services/aiApi';
 import './MoveHistoryEditor.css';
+import { identifyPlayerByColor } from '../utils/colorDetector';
 
 const API_BASE_URL = getApiBaseUrl();
 const ADMIN_PASSWORD_KEY = 'adminPassword';
@@ -29,6 +29,11 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [colorA, setColorA] = useState('#FF0000'); // Default red
   const [colorB, setColorB] = useState('#0000FF'); // Default blue
   const [showColorPicker, setShowColorPicker] = useState(false);
+  const [colorProcessing, setColorProcessing] = useState(false);
+  const [colorSuggestions, setColorSuggestions] = useState({});
+  const [colorProgress, setColorProgress] = useState({ current: 0, total: 0 });
+  const [colorAnchor, setColorAnchor] = useState('bottom');
+  const [colorPreview, setColorPreview] = useState(null);
 
   // Load password from localStorage
   useEffect(() => {
@@ -350,6 +355,212 @@ function MoveHistoryEditor({ sessionGameId }) {
     await handlePlayerUpdate(moveId, suggestion.player);
   };
 
+  const handleColorIdentifyAll = async () => {
+    if (!session || !Array.isArray(session.moves)) return;
+
+    setColorProcessing(true);
+    setColorSuggestions({});
+
+    try {
+      console.log('[MoveHistoryEditor] Starting color identification for all moves...');
+      console.log('[MoveHistoryEditor] 🎨 Using colors - Player A:', colorA, 'Player B:', colorB);
+
+      const movesToProcess = filteredMoves.filter((m) => m.camera_frame);
+
+      if (movesToProcess.length === 0) {
+        alert('No moves with camera frames to process (color)');
+        return;
+      }
+
+      setColorProgress({ current: 0, total: movesToProcess.length });
+      let processedCount = 0;
+
+      for (const move of movesToProcess) {
+        setColorProgress({ current: processedCount + 1, total: movesToProcess.length });
+        try {
+          const result = await identifyPlayerByColor(
+            move.camera_frame,
+            colorA,
+            colorB,
+            { anchor: colorAnchor }
+          );
+
+          setColorSuggestions((prev) => ({
+            ...prev,
+            [move._id]: {
+              player:
+                result.suggestion === 'A'
+                  ? 'Player A'
+                  : result.suggestion === 'B'
+                    ? 'Player B'
+                    : 'None',
+              stats: result.stats,
+              preview: result.preview
+            }
+          }));
+
+          processedCount += 1;
+        } catch (err) {
+          console.error(`[MoveHistoryEditor] Color identify error for move ${move._id}:`, err);
+        }
+      }
+
+      console.log('[MoveHistoryEditor] Color identification complete:', processedCount, 'moves processed');
+      alert(`Color-based method suggested players for ${processedCount} moves. Review and confirm suggestions below.`);
+    } catch (err) {
+      console.error('[MoveHistoryEditor] Error in color identification:', err);
+      alert('Color-based identification failed: ' + err.message);
+    } finally {
+      setColorProcessing(false);
+      setColorProgress({ current: 0, total: 0 });
+    }
+  };
+
+  const handleColorIdentifyUnknown = async () => {
+    if (!session || !Array.isArray(session.moves)) return;
+
+    setColorProcessing(true);
+    setColorSuggestions({});
+
+    try {
+      console.log('[MoveHistoryEditor] Starting color identification for unknown moves...');
+      console.log('[MoveHistoryEditor] 🎨 Using colors - Player A:', colorA, 'Player B:', colorB);
+
+      const movesToProcess = filteredMoves.filter(
+        (m) =>
+          m.camera_frame &&
+          (!m.player || m.player === 'Unknown' || m.player === 'None')
+      );
+
+      if (movesToProcess.length === 0) {
+        alert('No unknown moves with camera frames to process (color)');
+        return;
+      }
+
+      setColorProgress({ current: 0, total: movesToProcess.length });
+      let processedCount = 0;
+
+      for (const move of movesToProcess) {
+        setColorProgress({ current: processedCount + 1, total: movesToProcess.length });
+        try {
+          const result = await identifyPlayerByColor(
+            move.camera_frame,
+            colorA,
+            colorB,
+            { anchor: colorAnchor }
+          );
+
+          setColorSuggestions((prev) => ({
+            ...prev,
+            [move._id]: {
+              player:
+                result.suggestion === 'A'
+                  ? 'Player A'
+                  : result.suggestion === 'B'
+                    ? 'Player B'
+                    : 'None',
+              stats: result.stats,
+              preview: result.preview
+            }
+          }));
+
+          processedCount += 1;
+        } catch (err) {
+          console.error(`[MoveHistoryEditor] Color identify error for move ${move._id}:`, err);
+        }
+      }
+
+      console.log(
+        '[MoveHistoryEditor] Color identification complete:',
+        processedCount,
+        'unknown moves processed'
+      );
+      alert(
+        `Color-based method suggested players for ${processedCount} unknown moves. Review and confirm suggestions below.`
+      );
+    } catch (err) {
+      console.error('[MoveHistoryEditor] Error in color identification:', err);
+      alert('Color-based identification failed: ' + err.message);
+    } finally {
+      setColorProcessing(false);
+      setColorProgress({ current: 0, total: 0 });
+    }
+  };
+
+  const handleConfirmColorSuggestion = async (moveId) => {
+    const suggestion = colorSuggestions[moveId];
+    if (!suggestion) return;
+
+    await handlePlayerUpdate(moveId, suggestion.player);
+
+    setColorSuggestions((prev) => {
+      const updated = { ...prev };
+      delete updated[moveId];
+      return updated;
+    });
+  };
+
+  const handleColorIdentifySingle = async (moveId) => {
+    if (!session || !Array.isArray(session.moves)) return;
+    const move = session.moves.find((m) => m._id === moveId);
+    if (!move || !move.camera_frame) {
+      alert('This move has no camera frame for color-based identification.');
+      return;
+    }
+
+    try {
+      console.log(`[MoveHistoryEditor] Color-identifying single move: ${moveId}`);
+      const result = await identifyPlayerByColor(
+        move.camera_frame,
+        colorA,
+        colorB,
+        { anchor: colorAnchor }
+      );
+
+      setColorSuggestions((prev) => ({
+        ...prev,
+        [moveId]: {
+          player:
+            result.suggestion === 'A'
+              ? 'Player A'
+              : result.suggestion === 'B'
+                ? 'Player B'
+                : 'None',
+          stats: result.stats,
+          preview: result.preview
+        }
+      }));
+      let calibrationA = null;
+      let calibrationB = null;
+      try {
+        calibrationA = JSON.parse(localStorage.getItem('calibrationA') || 'null');
+      } catch (storageErr) {
+        calibrationA = null;
+      }
+      try {
+        calibrationB = JSON.parse(localStorage.getItem('calibrationB') || 'null');
+      } catch (storageErr) {
+        calibrationB = null;
+      }
+
+      setColorPreview({
+        moveId,
+        original: move.camera_frame,
+        preview: result.preview,
+        stats: result.stats,
+        suggestion: result.suggestion,
+        colorA,
+        colorB,
+        calibrationA,
+        calibrationB,
+        anchor: colorAnchor
+      });
+    } catch (err) {
+      console.error(`[MoveHistoryEditor] Error color-identifying move:`, err);
+      alert('Color-based identification failed: ' + err.message);
+    }
+  };
+
   const handleAiIdentifySingle = async (moveId) => {
     if (!sessionGameId || !password) return;
 
@@ -432,6 +643,21 @@ function MoveHistoryEditor({ sessionGameId }) {
   const practiceCount = session.moves?.filter(m => m.phase === 'practice').length || 0;
   const experimentCount = session.moves?.filter(m => m.phase === 'experiment').length || 0;
 
+  const colorPreviewStats = colorPreview?.stats;
+  const colorPreviewTotalPixels =
+    colorPreviewStats?.width && colorPreviewStats?.height
+      ? colorPreviewStats.width * colorPreviewStats.height
+      : 0;
+  const formatCoverage = (count) => {
+    if (!colorPreviewTotalPixels || !count) return '0%';
+    return `${((count / colorPreviewTotalPixels) * 100).toFixed(1)}%`;
+  };
+  const colorPreviewAnchorLabel = colorPreview
+    ? colorPreview.anchor === 'top'
+      ? 'Top edge (closest to ceiling camera)'
+      : 'Bottom edge (closest to screen base)'
+    : '';
+
   return (
     <div className="move-editor-container">
       <header className="move-editor-header">
@@ -506,6 +732,15 @@ function MoveHistoryEditor({ sessionGameId }) {
               ? `Processing ${aiProgress.current}/${aiProgress.total}...` 
               : 'AI Identify All'}
           </button>
+          <button
+            className="ai-btn color-btn-all"
+            onClick={handleColorIdentifyAll}
+            disabled={colorProcessing}
+          >
+            {colorProcessing && colorProgress.total > 0
+              ? `🎨 Color ${colorProgress.current}/${colorProgress.total}...`
+              : '🎨 Color Identify All'}
+          </button>
           <button 
             className="ai-btn ai-btn-unknown"
             onClick={handleAiIdentifyUnknown}
@@ -515,6 +750,25 @@ function MoveHistoryEditor({ sessionGameId }) {
               ? `Processing ${aiProgress.current}/${aiProgress.total}...` 
               : 'AI Identify Unknown'}
           </button>
+          <button
+            className="ai-btn ai-btn-unknown color-btn-unknown"
+            onClick={handleColorIdentifyUnknown}
+            disabled={colorProcessing}
+          >
+            {colorProcessing && colorProgress.total > 0
+              ? `🎨 Color Unknown ${colorProgress.current}/${colorProgress.total}...`
+              : '🎨 Color Identify Unknown'}
+          </button>
+          <div className="color-anchor-toggle">
+            <label>Color anchor:</label>
+            <select
+              value={colorAnchor}
+              onChange={(e) => setColorAnchor(e.target.value)}
+            >
+              <option value="bottom">Bottom</option>
+              <option value="top">Top</option>
+            </select>
+          </div>
         </div>
       </header>
 
@@ -569,6 +823,26 @@ function MoveHistoryEditor({ sessionGameId }) {
                   </div>
                 )}
 
+                {colorSuggestions[move._id] && (
+                  <div className="ai-suggestion-banner color-suggestion-banner">
+                    <div className="ai-suggestion-content">
+                      <span className="ai-icon">🎨</span>
+                      <span className="ai-text">
+                        Color suggests: <strong>{colorSuggestions[move._id].player}</strong>
+                      </span>
+                    </div>
+                    <button
+                      className="ai-confirm-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleConfirmColorSuggestion(move._id);
+                      }}
+                    >
+                      ✓ Confirm
+                    </button>
+                  </div>
+                )}
+
                 <div 
                   className="move-info-row player-row"
                   style={{
@@ -597,16 +871,28 @@ function MoveHistoryEditor({ sessionGameId }) {
                       <option value="Unknown">Unknown</option>
                     </select>
                     {move.camera_frame && (
-                      <button
-                        className="ai-single-btn"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          handleAiIdentifySingle(move._id);
-                        }}
-                        title="Identify this move with AI"
-                      >
-                        🤖
-                      </button>
+                      <>
+                        <button
+                          className="ai-single-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleAiIdentifySingle(move._id);
+                          }}
+                          title="Identify this move with AI"
+                        >
+                          🤖
+                        </button>
+                        <button
+                          className="ai-single-btn color-single-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleColorIdentifySingle(move._id);
+                          }}
+                          title="Identify this move by color"
+                        >
+                          🎨
+                        </button>
+                      </>
                     )}
                   </div>
                 </div>
@@ -653,6 +939,100 @@ function MoveHistoryEditor({ sessionGameId }) {
           <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
             <button className="close-modal" onClick={() => setExpandedImage(null)}>✕</button>
             <img src={expandedImage} alt="Expanded view" />
+          </div>
+        </div>
+      )}
+
+      {colorPreview && (
+        <div className="image-modal" onClick={() => setColorPreview(null)}>
+          <div className="image-modal-content color-preview-modal" onClick={(e) => e.stopPropagation()}>
+            <button className="close-modal" onClick={() => setColorPreview(null)}>✕</button>
+            <div className="color-preview-grid">
+              <div className="color-preview-panel">
+                <h3>Original Frame</h3>
+                <img src={colorPreview.original} alt="Original frame" />
+              </div>
+              <div className="color-preview-panel">
+                <h3>Mask View</h3>
+                {colorPreview.preview ? (
+                  <img src={colorPreview.preview} alt="Mask preview" />
+                ) : (
+                  <p>No mask preview available</p>
+                )}
+              </div>
+            </div>
+            {colorPreview.stats && (
+              <div className="color-preview-stats">
+                <div className="color-preview-meta">
+                  <div>
+                    <strong>Frame:</strong>{' '}
+                    {colorPreview.stats.width} × {colorPreview.stats.height}{' '}
+                    ({colorPreviewTotalPixels.toLocaleString()} px)
+                  </div>
+                  <div>
+                    <strong>Anchor:</strong> {colorPreviewAnchorLabel}
+                  </div>
+                  <div>
+                    <strong>Suggestion:</strong>{' '}
+                    {colorPreview.suggestion === 'A'
+                      ? 'Player A'
+                      : colorPreview.suggestion === 'B'
+                        ? 'Player B'
+                        : 'None'}
+                  </div>
+                </div>
+                <div className="color-preview-calibration">
+                  <div className="calibration-card">
+                    <div className="calibration-header">
+                      <span className="player-label">Player A color</span>
+                      <div className="color-chip" style={{ backgroundColor: colorPreview.colorA }} />
+                    </div>
+                    <code>{colorPreview.colorA || '—'}</code>
+                    {colorPreview.calibrationA && (
+                      <div className="calibration-hsv">
+                        HSV: h={colorPreview.calibrationA.h ?? '—'} / s={colorPreview.calibrationA.s ?? '—'} / v={colorPreview.calibrationA.v ?? '—'}
+                      </div>
+                    )}
+                  </div>
+                  <div className="calibration-card">
+                    <div className="calibration-header">
+                      <span className="player-label">Player B color</span>
+                      <div className="color-chip" style={{ backgroundColor: colorPreview.colorB }} />
+                    </div>
+                    <code>{colorPreview.colorB || '—'}</code>
+                    {colorPreview.calibrationB && (
+                      <div className="calibration-hsv">
+                        HSV: h={colorPreview.calibrationB.h ?? '—'} / s={colorPreview.calibrationB.s ?? '—'} / v={colorPreview.calibrationB.v ?? '—'}
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div className="color-preview-breakdown">
+                  <div className="breakdown-card">
+                    <h4>Player A band</h4>
+                    <p>
+                      <strong>Pixels:</strong> {colorPreview.stats.pixelsA || 0}{' '}
+                      ({formatCoverage(colorPreview.stats.pixelsA)})
+                    </p>
+                    <p>
+                      <strong>Vertical span:</strong>{' '}
+                      {colorPreview.stats.minYA ?? '—'} → {colorPreview.stats.maxYA ?? '—'}
+                    </p>
+                  </div>
+                  <div className="breakdown-card">
+                    <h4>Player B band</h4>
+                    <p>
+                      <strong>Pixels:</strong> {colorPreview.stats.pixelsB || 0}{' '}
+                      ({formatCoverage(colorPreview.stats.pixelsB)})
+                    </p>
+                    <p>
+                      <strong>Vertical span:</strong>{' '}
+                      {colorPreview.stats.minYB ?? '—'} → {colorPreview.stats.maxYB ?? '—'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
