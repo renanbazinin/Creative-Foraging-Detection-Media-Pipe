@@ -354,20 +354,21 @@ const identifyPlayerBySegmentation = async (
   const rgbA = normalizeColorToRGB(colorAConfig);
   const rgbB = normalizeColorToRGB(colorBConfig);
   if (!rgbA || !rgbB) {
-    console.warn('[ColorDetector] Invalid color configs, returning None');
+    console.warn('[ColorDetector] Invalid color configs');
     return { suggestion: 'None', stats: { mode: 'segmentation' } };
   }
 
   try {
+    // 1. Setup Images
     const imageElement = await loadImageElement(frameDataUrl);
     const width = imageElement.naturalWidth || imageElement.width;
     const height = imageElement.naturalHeight || imageElement.height;
 
-    // Get segmentation mask (white = person, black = background)
     const results = await runSegmentation(imageElement, {
       modelSelection: options.modelSelection ?? DEFAULT_SEGMENTATION_MODEL
     });
 
+    // Draw Mask
     const maskCanvas = document.createElement('canvas');
     maskCanvas.width = width;
     maskCanvas.height = height;
@@ -375,7 +376,7 @@ const identifyPlayerBySegmentation = async (
     maskCtx.drawImage(results.segmentationMask, 0, 0, width, height);
     const maskData = maskCtx.getImageData(0, 0, width, height).data;
 
-    // Get original image data for color checking
+    // Draw Video
     const videoCanvas = document.createElement('canvas');
     videoCanvas.width = width;
     videoCanvas.height = height;
@@ -383,131 +384,202 @@ const identifyPlayerBySegmentation = async (
     videoCtx.drawImage(imageElement, 0, 0, width, height);
     const videoData = videoCtx.getImageData(0, 0, width, height).data;
 
+    // 2. Configuration
     const maskThreshold = options.maskThreshold || 100;
     const colorThreshold = options.colorThreshold ?? 95;
-    const anchor = options.anchor || 'bottom';
+    const anchor = options.anchor || 'top'; // 'top' or 'bottom'
     const sqThresh = colorThreshold * colorThreshold;
+    
+    // NEW: Scan Depth - How far from the "tip" do we look? 
+    // 0.20 means we only check the first 20% of the arm (the wrist/hand).
+    const scanDepthRatio = options.scanDepth ?? 1.0; // Default to 100% (full scan)
+    const stride = options.stride || 2; // Optimization: skip pixels
 
-    // Find all person pixels (arms/body)
-    const personPixels = [];
-    for (let y = 0; y < height; y += 1) {
-      for (let x = 0; x < width; x += 1) {
-        const idx = (y * width + x) * 4;
-        const isPerson = maskData[idx] >= maskThreshold;
-        if (isPerson) {
-          personPixels.push({ x, y, idx });
+    // 3. Find the "Tip" (The point closest to the anchor)
+    let tipY = (anchor === 'top') ? height : 0;
+    let foundPerson = false;
+
+    // We scan to find the first Y coordinate that has person pixels
+    if (anchor === 'top') {
+      for (let y = 0; y < height; y += stride) {
+        for (let x = 0; x < width; x += stride) {
+          if (maskData[(y * width + x) * 4] >= maskThreshold) {
+            tipY = y;
+            foundPerson = true;
+            break;
+          }
         }
+        if (foundPerson) break;
+      }
+    } else { // Bottom anchor
+      for (let y = height - 1; y >= 0; y -= stride) {
+        for (let x = 0; x < width; x += stride) {
+          if (maskData[(y * width + x) * 4] >= maskThreshold) {
+            tipY = y;
+            foundPerson = true;
+            break;
+          }
+        }
+        if (foundPerson) break;
       }
     }
 
-    if (personPixels.length === 0) {
-      return {
-        suggestion: 'None',
-        stats: {
+    if (!foundPerson) {
+      return { 
+        suggestion: 'None', 
+        stats: { 
           mode: 'segmentation',
-          width,
-          height,
-          reason: 'no_person_detected'
+          reason: 'no_person' 
         },
         preview: null,
         maskPreview: null
       };
     }
 
-    // Scan all person pixels to find color matches
+    // 4. Define the "Wrist Zone" (ROI)
+    // We only analyze pixels between the Tip and the Cutoff limit
+    let startY, endY;
+    const pixelDepth = Math.floor(height * scanDepthRatio);
+
+    if (anchor === 'top') {
+      startY = tipY; 
+      endY = Math.min(height, tipY + pixelDepth);
+    } else {
+      startY = Math.max(0, tipY - pixelDepth);
+      endY = tipY;
+    }
+
+    // 5. Analyze Colors ONLY in the Wrist Zone
     let pixelsA = 0;
     let pixelsB = 0;
-    const armPixelsA = []; // Pixels matching color A
-    const armPixelsB = []; // Pixels matching color B
+    const armPixelsA = [];
+    const armPixelsB = [];
 
-    for (const pixel of personPixels) {
-      const vidIdx = pixel.idx;
-      const r = videoData[vidIdx];
-      const g = videoData[vidIdx + 1];
-      const b = videoData[vidIdx + 2];
+    for (let y = startY; y < endY; y += stride) {
+      for (let x = 0; x < width; x += stride) {
+        const idx = (y * width + x) * 4;
 
-      const dA = rgbDistanceSq({ r, g, b }, rgbA);
-      const dB = rgbDistanceSq({ r, g, b }, rgbB);
+        // Skip non-person pixels (background)
+        if (maskData[idx] < maskThreshold) continue;
 
-      if (dA < sqThresh && dA < dB) {
-        pixelsA += 1;
-        armPixelsA.push(pixel);
-      } else if (dB < sqThresh && dB < dA) {
-        pixelsB += 1;
-        armPixelsB.push(pixel);
+        const r = videoData[idx];
+        const g = videoData[idx + 1];
+        const b = videoData[idx + 2];
+
+        const dA = rgbDistanceSq({ r, g, b }, rgbA);
+        const dB = rgbDistanceSq({ r, g, b }, rgbB);
+
+        // Strict matching: Must be closer to one color AND within threshold
+        if (dA < sqThresh && dA < dB) {
+          pixelsA++;
+          armPixelsA.push({ x, y, idx });
+        } else if (dB < sqThresh && dB < dA) {
+          pixelsB++;
+          armPixelsB.push({ x, y, idx });
+        }
       }
     }
 
-    // Determine which arm is closer to anchor
+    // 6. Decision Logic
+    // We need a minimum number of pixels to be confident (ignoring noise)
+    const MIN_PIXELS = 50; 
     let suggestion = 'None';
     let bestArm = null;
-    let bestDistance = Infinity;
 
-    // Check arm with color A
-    if (armPixelsA.length > 0) {
-      let minY = height;
-      let maxY = 0;
-      for (const pixel of armPixelsA) {
-        if (pixel.y < minY) minY = pixel.y;
-        if (pixel.y > maxY) maxY = pixel.y;
-      }
-      const anchorY = anchor === 'top' ? minY : maxY;
-      const distance = anchor === 'top' ? anchorY : height - anchorY;
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestArm = { color: 'A', pixels: armPixelsA, minY, maxY, anchorY };
-        suggestion = 'A';
-      }
+    if (pixelsA > MIN_PIXELS && pixelsA > pixelsB) {
+      suggestion = 'A';
+      bestArm = { color: 'A', pixelCount: pixelsA, minY: startY, maxY: endY, anchorY: tipY };
+    } else if (pixelsB > MIN_PIXELS && pixelsB > pixelsA) {
+      suggestion = 'B';
+      bestArm = { color: 'B', pixelCount: pixelsB, minY: startY, maxY: endY, anchorY: tipY };
     }
 
-    // Check arm with color B
-    if (armPixelsB.length > 0) {
-      let minY = height;
-      let maxY = 0;
-      for (const pixel of armPixelsB) {
-        if (pixel.y < minY) minY = pixel.y;
-        if (pixel.y > maxY) maxY = pixel.y;
-      }
-      const anchorY = anchor === 'top' ? minY : maxY;
-      const distance = anchor === 'top' ? anchorY : height - anchorY;
-      if (distance < bestDistance) {
-        bestDistance = distance;
-        bestArm = { color: 'B', pixels: armPixelsB, minY, maxY, anchorY };
-        suggestion = 'B';
-      }
-    }
-
-    // Create simple black/white preview showing only detected arms
+    // 7. Generate Debug Preview (Shows the Scan Zone)
     let preview = null;
     let maskPreview = null;
     try {
-      // Preview: Black background, white = detected arms (color A or B)
       const previewCanvas = document.createElement('canvas');
       previewCanvas.width = width;
       previewCanvas.height = height;
-      const previewCtx = previewCanvas.getContext('2d');
-      const previewImageData = previewCtx.createImageData(width, height);
-      const previewPixels = previewImageData.data;
+      const ctx = previewCanvas.getContext('2d');
+      
+      // Draw dimmed original
+      ctx.drawImage(imageElement, 0, 0, width, height);
+      ctx.fillStyle = 'rgba(0,0,0,0.6)';
+      ctx.fillRect(0, 0, width, height);
 
-      // Fill with black
-      for (let i = 0; i < width * height * 4; i += 4) {
-        previewPixels[i] = 0;     // R
-        previewPixels[i + 1] = 0; // G
-        previewPixels[i + 2] = 0; // B
-        previewPixels[i + 3] = 255; // A
+      // Highlight the Scan Zone (The area we actually looked at)
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = 'rgba(0,0,0,1)';
+      ctx.fillRect(0, startY, width, (endY - startY));
+      
+      // Draw the original image back into the cleared scan zone
+      ctx.globalCompositeOperation = 'destination-over';
+      ctx.drawImage(imageElement, 0, 0, width, height);
+
+      // Overlay MediaPipe segmentation mask (show which pixels were counted as "person")
+      ctx.globalCompositeOperation = 'source-over';
+      
+      // Draw person mask outline in cyan (only in scan zone for clarity)
+      const overlayImageData = ctx.createImageData(width, height);
+      const overlayPixels = overlayImageData.data;
+      
+      for (let y = startY; y < endY; y += 1) {
+        for (let x = 0; x < width; x += 1) {
+          const idx = (y * width + x) * 4;
+          const isPerson = maskData[idx] >= maskThreshold;
+          
+          if (isPerson) {
+            // Cyan overlay for person pixels in scan zone (more visible)
+            overlayPixels[idx] = 0;       // R
+            overlayPixels[idx + 1] = 255; // G (cyan)
+            overlayPixels[idx + 2] = 255; // B (cyan)
+            overlayPixels[idx + 3] = 90;  // A (35% opacity - more visible)
+          }
+        }
       }
+      ctx.putImageData(overlayImageData, 0, 0);
 
-      // Mark detected arms in white
-      const allArmPixels = [...armPixelsA, ...armPixelsB];
-      for (const pixel of allArmPixels) {
+      // Highlight pixels with color matches in the scan zone
+      const colorOverlayImageData = ctx.createImageData(width, height);
+      const colorOverlayPixels = colorOverlayImageData.data;
+      
+      // Mark color A pixels in bright red (more visible)
+      for (const pixel of armPixelsA) {
         const idx = pixel.idx;
-        previewPixels[idx] = 255;     // R
-        previewPixels[idx + 1] = 255; // G
-        previewPixels[idx + 2] = 255; // B
-        previewPixels[idx + 3] = 255; // A
+        colorOverlayPixels[idx] = 255;     // R (red)
+        colorOverlayPixels[idx + 1] = 0;   // G
+        colorOverlayPixels[idx + 2] = 0;   // B
+        colorOverlayPixels[idx + 3] = 150; // A (59% opacity - more visible)
       }
+      
+      // Mark color B pixels in bright blue (more visible)
+      for (const pixel of armPixelsB) {
+        const idx = pixel.idx;
+        colorOverlayPixels[idx] = 0;       // R
+        colorOverlayPixels[idx + 1] = 100; // G
+        colorOverlayPixels[idx + 2] = 255; // B (blue)
+        colorOverlayPixels[idx + 3] = 150; // A (59% opacity - more visible)
+      }
+      
+      ctx.putImageData(colorOverlayImageData, 0, 0);
 
-      previewCtx.putImageData(previewImageData, 0, 0);
+      // Draw Scan Lines
+      ctx.strokeStyle = '#00FF00'; // Green line = Tip
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      ctx.beginPath(); 
+      ctx.moveTo(0, tipY); 
+      ctx.lineTo(width, tipY); 
+      ctx.stroke();
+
+      ctx.strokeStyle = '#FFFF00'; // Yellow line = Cutoff (Wrist End)
+      ctx.setLineDash([5, 5]);
+      ctx.beginPath(); 
+      ctx.moveTo(0, anchor === 'top' ? endY : startY); 
+      ctx.lineTo(width, anchor === 'top' ? endY : startY); 
+      ctx.stroke();
+
       preview = previewCanvas.toDataURL('image/png');
 
       // Mask preview: Raw segmentation (white = person, black = background)
@@ -530,33 +602,33 @@ const identifyPlayerBySegmentation = async (
 
       maskPreviewCtx.putImageData(maskPreviewImageData, 0, 0);
       maskPreview = maskPreviewCanvas.toDataURL('image/png');
-    } catch (previewError) {
-      console.warn('[ColorDetector] Failed generating preview', previewError);
+    } catch (e) { 
+      console.warn('[ColorDetector] Failed generating preview', e); 
     }
 
     const stats = {
       mode: 'segmentation',
       width,
       height,
-      maskThreshold,
-      colorThreshold,
-      anchor,
-      personPixels: personPixels.length,
       pixelsA,
       pixelsB,
-      bestArm: bestArm ? {
-        color: bestArm.color,
-        pixelCount: bestArm.pixels.length,
-        minY: bestArm.minY,
-        maxY: bestArm.maxY,
-        anchorY: bestArm.anchorY
-      } : null
+      tipY,
+      scanDepth: pixelDepth,
+      scanDepthRatio,
+      anchor,
+      bestArm
     };
 
-    return { suggestion, stats, preview, maskPreview };
+    return {
+      suggestion,
+      stats,
+      preview,
+      maskPreview
+    };
+
   } catch (error) {
     console.error('[ColorDetector] Segmentation failed:', error);
-    throw error;
+    return { suggestion: 'None' };
   }
 };
 

@@ -49,6 +49,7 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [colorSuggestions, setColorSuggestions] = useState({});
   const [colorProgress, setColorProgress] = useState({ current: 0, total: 0 });
   const [colorAnchor, setColorAnchor] = useState('bottom');
+  const [colorScanPercentage, setColorScanPercentage] = useState(100);
   const [colorPreview, setColorPreview] = useState(null);
 
   const detectPlayerByColor = useCallback(
@@ -63,8 +64,8 @@ function MoveHistoryEditor({ sessionGameId }) {
           modelSelection: 1, // Landscape/High accuracy
           stride: 2, // Skip pixels for performance
           maskThreshold: 100, // Person detection threshold
-          wristOffset: 20, // If tip is skin, check 20px lower for wrist band
-          colorThreshold: 95
+          colorThreshold: 95,
+          scanDepth: colorScanPercentage / 100 // Convert percentage to ratio (0.20 = 20%, 1.0 = 100%)
         });
         if (segmentationResult) {
           return segmentationResult;
@@ -74,7 +75,7 @@ function MoveHistoryEditor({ sessionGameId }) {
       }
       return identifyPlayerByColor(frameData, colorA, colorB, { anchor: colorAnchor });
     },
-    [colorA, colorB, colorAnchor]
+    [colorA, colorB, colorAnchor, colorScanPercentage]
   );
 
   // Load password from localStorage
@@ -788,6 +789,18 @@ function MoveHistoryEditor({ sessionGameId }) {
               <option value="bottom">Bottom</option>
               <option value="top">Top</option>
             </select>
+          </div>
+          <div className="color-scan-percentage">
+            <label>Scan area: {colorScanPercentage}%</label>
+            <input
+              type="range"
+              min="20"
+              max="100"
+              step="5"
+              value={colorScanPercentage}
+              onChange={(e) => setColorScanPercentage(Number(e.target.value))}
+              style={{ width: '120px', marginLeft: '8px' }}
+            />
           </div>
         </div>
       </header>

@@ -60,7 +60,7 @@ function ColorPreviewModal({ colorPreview, onClose }) {
               <>
                 <p className="mask-label">
                   {colorPreview.stats?.mode === 'segmentation'
-                    ? 'Detected Arms (White = Arms with Color A or B, Black = Background)'
+                    ? 'Overlay: Cyan = MediaPipe Person | Red = Color A | Blue = Color B | Green Line = Tip | Yellow = Scan End'
                     : colorPreview.stats?.mode === 'arm-segmentation'
                       ? 'Arms Only - Color Detection (Red = Player A, Blue = Player B)'
                       : 'Color Overlay'}
@@ -157,8 +157,10 @@ function ColorPreviewModal({ colorPreview, onClose }) {
                   Detection Results
                 </h3>
                 <div className="segmentation-card">
-                  <h4>Person Pixels</h4>
-                  <p><strong>Total:</strong> {colorPreview.stats.personPixels?.toLocaleString() || 0} pixels</p>
+                  <h4>Scan Zone</h4>
+                  <p><strong>Tip Y:</strong> {colorPreview.stats.tipY ?? '—'}</p>
+                  <p><strong>Scan Depth:</strong> {colorPreview.stats.scanDepth?.toLocaleString() || 0} pixels ({colorPreview.stats.scanDepthRatio ? `${(colorPreview.stats.scanDepthRatio * 100).toFixed(0)}%` : '—'})</p>
+                  <p><strong>Anchor:</strong> {colorPreview.stats.anchor === 'top' ? 'Top' : 'Bottom'}</p>
                 </div>
                 <div className="segmentation-card">
                   <h4>Color A Pixels</h4>
@@ -175,8 +177,8 @@ function ColorPreviewModal({ colorPreview, onClose }) {
                       <span style={{ color: '#4CAF50', marginLeft: '0.5rem' }}>★</span>
                     </h4>
                     <p><strong>Pixel Count:</strong> {colorPreview.stats.bestArm.pixelCount?.toLocaleString() || 0}</p>
-                    <p><strong>Vertical span:</strong> Y={colorPreview.stats.bestArm.minY} → {colorPreview.stats.bestArm.maxY}</p>
-                    <p><strong>Anchor Y:</strong> {colorPreview.stats.bestArm.anchorY}</p>
+                    <p><strong>Scan Zone:</strong> Y={colorPreview.stats.bestArm.minY} → {colorPreview.stats.bestArm.maxY}</p>
+                    <p><strong>Tip Y:</strong> {colorPreview.stats.bestArm.anchorY}</p>
                   </div>
                 )}
               </div>
