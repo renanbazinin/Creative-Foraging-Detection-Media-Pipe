@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getApiBaseUrl } from '../config/api.config';
 import './MoveHistoryEditor.css';
-import { identifyPlayerByColor, identifyPlayerBySegmentation } from '../utils/colorDetector';
+import { identifyPlayerByColor, identifyPlayerBySegmentation, identifyPlayersByCloth } from '../utils/colorDetector';
 import ColorPreviewModal from './ColorPreviewModal';
 import ManualScanSelector from './ManualScanSelector';
 
@@ -55,6 +55,8 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [manualScanBounds, setManualScanBounds] = useState(null); // { topY: number, bottomY: number }
   const [showManualSelector, setShowManualSelector] = useState(false);
   const [manualSelectorFrame, setManualSelectorFrame] = useState(null);
+  const [clothProcessing, setClothProcessing] = useState(false);
+  const [clothAnalytics, setClothAnalytics] = useState(null);
 
   const detectPlayerByColor = useCallback(
     async (frameData) => {
@@ -434,6 +436,7 @@ function MoveHistoryEditor({ sessionGameId }) {
           setColorSuggestions((prev) => ({
             ...prev,
             [move._id]: {
+              method: 'color',
               player:
                 result.suggestion === 'A'
                   ? 'Player A'
@@ -495,6 +498,7 @@ function MoveHistoryEditor({ sessionGameId }) {
           setColorSuggestions((prev) => ({
             ...prev,
             [move._id]: {
+              method: 'color',
               player:
                 result.suggestion === 'A'
                   ? 'Player A'
@@ -561,6 +565,7 @@ function MoveHistoryEditor({ sessionGameId }) {
       setColorSuggestions((prev) => ({
         ...prev,
         [moveId]: {
+          method: 'color',
           player:
             result.suggestion === 'A'
               ? 'Player A'
@@ -602,6 +607,100 @@ function MoveHistoryEditor({ sessionGameId }) {
       alert('Color-based identification failed: ' + err.message);
     }
   };
+
+  const runClothIdentification = useCallback(
+    async ({ mode }) => {
+      if (!session || !Array.isArray(session.moves)) {
+        alert('No session data available.');
+        return;
+      }
+
+      const movesWithFrames = session.moves.filter((move) => move.camera_frame);
+      if (movesWithFrames.length === 0) {
+        alert('No camera frames available for cloth-based identification.');
+        return;
+      }
+
+      const unknownMoveIds = new Set(
+        session.moves
+          .filter((move) => !move.player || move.player === 'Unknown' || move.player === 'None')
+          .map((move) => move._id)
+      );
+
+      if (mode === 'unknown' && unknownMoveIds.size === 0) {
+        alert('All moves already have players assigned.');
+        return;
+      }
+
+      setClothProcessing(true);
+      setClothAnalytics(null);
+
+      try {
+        const framesPayload = movesWithFrames.map((move) => ({
+          moveId: move._id,
+          frameDataUrl: move.camera_frame,
+          existingPlayer: move.player && move.player !== 'Unknown' ? move.player : null
+        }));
+
+        const result = await identifyPlayersByCloth(framesPayload, {
+          maxFrames: movesWithFrames.length,
+          stride: 2,
+          minClothPixels: 80
+        });
+
+        if (result?.analytics) {
+          setClothAnalytics(result.analytics);
+        }
+
+        const newSuggestions = {};
+        if (result?.assignments) {
+          Object.entries(result.assignments).forEach(([moveId, info]) => {
+            const shouldApply =
+              mode === 'all' ? true : unknownMoveIds.has(moveId);
+
+            if (!shouldApply) return;
+
+            newSuggestions[moveId] = {
+              method: 'cloth',
+              player: info.player,
+              styleLabel: info.styleLabel,
+              confidence: info.confidence,
+              stats: info.stats
+            };
+          });
+        }
+
+        const suggestionCount = Object.keys(newSuggestions).length;
+        if (suggestionCount === 0) {
+          const targetText = mode === 'all' ? 'moves' : 'unknown moves';
+          alert(`Cloth-based method did not find suggestions for any ${targetText}.`);
+        } else {
+          setColorSuggestions((prev) => ({
+            ...prev,
+            ...newSuggestions
+          }));
+          const targetText = mode === 'all' ? 'moves' : 'unknown moves';
+          alert(
+            `Cloth-based method suggested players for ${suggestionCount} ${targetText}. Review and confirm suggestions below.`
+          );
+        }
+      } catch (err) {
+        console.error('[MoveHistoryEditor] Cloth identification failed:', err);
+        alert('Cloth-based identification failed: ' + err.message);
+      } finally {
+        setClothProcessing(false);
+      }
+    },
+    [session]
+  );
+
+  const handleClothIdentifyAll = useCallback(() => {
+    runClothIdentification({ mode: 'all' });
+  }, [runClothIdentification]);
+
+  const handleClothIdentifyUnknown = useCallback(() => {
+    runClothIdentification({ mode: 'unknown' });
+  }, [runClothIdentification]);
 
   const handleAiIdentifySingle = async (moveId) => {
     if (!sessionGameId || !password) return;
@@ -795,6 +894,20 @@ function MoveHistoryEditor({ sessionGameId }) {
               ? `🎨 Color Unknown ${colorProgress.current}/${colorProgress.total}...`
               : '🎨 Color Identify Unknown'}
           </button>
+          <button
+            className="ai-btn cloth-btn"
+            onClick={handleClothIdentifyAll}
+            disabled={clothProcessing}
+          >
+            {clothProcessing ? '👕 Identifying by Cloth...' : '👕 Identify by Cloth All'}
+          </button>
+          <button
+            className="ai-btn cloth-btn"
+            onClick={handleClothIdentifyUnknown}
+            disabled={clothProcessing}
+          >
+            {clothProcessing ? '👕 Identifying by Cloth...' : '👕 Identify by Cloth Unknown'}
+          </button>
           <div className="color-anchor-toggle">
             <label>Color anchor:</label>
             <select
@@ -856,6 +969,48 @@ function MoveHistoryEditor({ sessionGameId }) {
           )}
         </div>
       </header>
+
+      {clothAnalytics && (
+        <section className="cloth-analytics">
+          <div className="cloth-analytics-header">
+            <div>
+              <h3>Cloth Styles Analytics</h3>
+              <p>
+                Frames analyzed: {clothAnalytics.usedFrames}/{clothAnalytics.totalFrames} · Skipped:{' '}
+                {clothAnalytics.skippedFrames}
+              </p>
+            </div>
+          </div>
+          <div className="cloth-style-grid">
+            {clothAnalytics.clusters?.map((cluster) => (
+              <div key={cluster.id} className="cloth-style-card">
+                <div className="cloth-style-card-header">
+                  <span className="style-label">{cluster.styleLabel}</span>
+                  <span className="player-label">{cluster.assignedPlayer}</span>
+                </div>
+                <div
+                  className="cloth-style-color-chip"
+                  style={{ backgroundColor: cluster.hexColor }}
+                />
+                <div className="cloth-style-stats">
+                  <div>
+                    <strong>Mean color:</strong> {cluster.hexColor}
+                  </div>
+                  <div>
+                    <strong>Frames:</strong> {cluster.sampleCount}
+                  </div>
+                  <div>
+                    <strong>Avg pixels:</strong> {formatNumber(cluster.avgPixels || 0)}
+                  </div>
+                  <div>
+                    <strong>Avg brightness:</strong> {formatNumber(cluster.avgBrightness || 0)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="move-editor-content">
         <div className="moves-grid">
@@ -921,9 +1076,21 @@ function MoveHistoryEditor({ sessionGameId }) {
                 })()}
 
                 {colorSuggestions[move._id] && (() => {
-                  const suggestedPlayer = colorSuggestions[move._id].player;
-                  const isPlayerA = suggestedPlayer === 'A' || suggestedPlayer === 'Player A';
+                  const suggestion = colorSuggestions[move._id];
+                  const suggestedPlayer = suggestion.player;
+                  const isPlayerA = suggestedPlayer === 'Player A';
                   const bannerColor = isPlayerA ? colorA : colorB;
+                  const method = suggestion.method || 'color';
+                  const icon = method === 'cloth' ? '👕' : '🎨';
+                  const methodLabel =
+                    method === 'cloth'
+                      ? `Cloth suggests${suggestion.styleLabel ? ` (${suggestion.styleLabel})` : ''}:`
+                      : 'Color suggests:';
+                  const confidenceText =
+                    typeof suggestion.confidence === 'number'
+                      ? ` · ${Math.round(suggestion.confidence * 100)}% confidence`
+                      : '';
+
                   return (
                     <div 
                       className="ai-suggestion-banner color-suggestion-banner"
@@ -934,9 +1101,10 @@ function MoveHistoryEditor({ sessionGameId }) {
                       }}
                     >
                       <div className="ai-suggestion-content">
-                        <span className="ai-icon">🎨</span>
+                        <span className="ai-icon">{icon}</span>
                         <span className="ai-text">
-                          Color suggests: <strong>{colorSuggestions[move._id].player}</strong>
+                          {methodLabel} <strong>{suggestion.player}</strong>
+                          {confidenceText}
                         </span>
                       </div>
                       <button

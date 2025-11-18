@@ -417,11 +417,30 @@
 }
 
 .color-preview-modal {
-  max-width: 95vw;
+  max-width: 98vw;
+  width: 1400px;
   max-height: 90vh;
   display: flex;
   flex-direction: column;
   gap: 20px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #4CAF50 #1a1a1a;
+  padding-right: 8px; /* Avoid scrollbar overlap */
+}
+
+.color-preview-modal::-webkit-scrollbar {
+  width: 8px;
+}
+
+.color-preview-modal::-webkit-scrollbar-track {
+  background: #1a1a1a;
+  border-radius: 4px;
+}
+
+.color-preview-modal::-webkit-scrollbar-thumb {
+  background: #4CAF50;
+  border-radius: 4px;
 }
 
 .color-preview-grid {
@@ -739,6 +758,16 @@
   box-shadow: 0 4px 12px rgba(139, 195, 74, 0.5);
 }
 
+.cloth-btn {
+  background: linear-gradient(135deg, #03a9f4 0%, #00bcd4 100%);
+  box-shadow: 0 2px 8px rgba(0, 188, 212, 0.3);
+}
+
+.cloth-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #29b6f6 0%, #26c6da 100%);
+  box-shadow: 0 4px 12px rgba(0, 188, 212, 0.5);
+}
+
 /* AI Single Move Button */
 .ai-single-btn {
   padding: 6px 10px;
@@ -839,6 +868,66 @@
 
 .manual-bounds-info button:hover {
   background: #45a049;
+}
+
+.cloth-analytics {
+  margin: 16px 32px;
+  padding: 16px;
+  background: #111;
+  border: 1px solid #2a2a2a;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.cloth-analytics-header h3 {
+  margin: 0;
+  color: #4CAF50;
+}
+
+.cloth-analytics-header p {
+  margin: 4px 0 0 0;
+  color: #aaa;
+  font-size: 14px;
+}
+
+.cloth-style-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+}
+
+.cloth-style-card {
+  background: #0f0f0f;
+  border: 1px solid #2a2a2a;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.cloth-style-card-header {
+  display: flex;
+  justify-content: space-between;
+  font-weight: 600;
+  color: #fff;
+}
+
+.cloth-style-color-chip {
+  width: 100%;
+  height: 48px;
+  border-radius: 6px;
+  border: 1px solid #444;
+}
+
+.cloth-style-stats {
+  font-size: 13px;
+  color: #bbb;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .manual-scan-selector {
