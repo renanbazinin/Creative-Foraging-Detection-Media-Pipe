@@ -424,29 +424,43 @@ const identifyPlayerBySegmentation = async (
       }
     }
 
-    if (!foundPerson) {
-      return { 
-        suggestion: 'None', 
-        stats: { 
-          mode: 'segmentation',
-          reason: 'no_person' 
-        },
-        preview: null,
-        maskPreview: null
-      };
-    }
-
     // 4. Define the "Wrist Zone" (ROI)
-    // We only analyze pixels between the Tip and the Cutoff limit
+    // Check if manual bounds are provided
     let startY, endY;
-    const pixelDepth = Math.floor(height * scanDepthRatio);
-
-    if (anchor === 'top') {
-      startY = tipY; 
-      endY = Math.min(height, tipY + pixelDepth);
+    let pixelDepth;
+    
+    if (options.manualBounds && anchor === 'manually') {
+      // Use manual bounds directly
+      startY = options.manualBounds.topY;
+      endY = options.manualBounds.bottomY;
+      pixelDepth = endY - startY;
+      // For manual mode, we still need tipY for display, use startY
+      if (!foundPerson) {
+        tipY = startY; // Fallback if no person found
+      }
     } else {
-      startY = Math.max(0, tipY - pixelDepth);
-      endY = tipY;
+      // Use automatic calculation
+      if (!foundPerson) {
+        return { 
+          suggestion: 'None', 
+          stats: { 
+            mode: 'segmentation',
+            reason: 'no_person' 
+          },
+          preview: null,
+          maskPreview: null
+        };
+      }
+      
+      pixelDepth = scanDepthRatio ? Math.floor(height * scanDepthRatio) : height;
+      
+      if (anchor === 'top') {
+        startY = tipY; 
+        endY = Math.min(height, tipY + pixelDepth);
+      } else {
+        startY = Math.max(0, tipY - pixelDepth);
+        endY = tipY;
+      }
     }
 
     // 5. Analyze Colors ONLY in the Wrist Zone

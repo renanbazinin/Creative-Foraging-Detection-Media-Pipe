@@ -3,6 +3,7 @@ import { getApiBaseUrl } from '../config/api.config';
 import './MoveHistoryEditor.css';
 import { identifyPlayerByColor, identifyPlayerBySegmentation } from '../utils/colorDetector';
 import ColorPreviewModal from './ColorPreviewModal';
+import ManualScanSelector from './ManualScanSelector';
 
 const API_BASE_URL = getApiBaseUrl();
 const ADMIN_PASSWORD_KEY = 'adminPassword';
@@ -51,6 +52,9 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [colorAnchor, setColorAnchor] = useState('bottom');
   const [colorScanPercentage, setColorScanPercentage] = useState(100);
   const [colorPreview, setColorPreview] = useState(null);
+  const [manualScanBounds, setManualScanBounds] = useState(null); // { topY: number, bottomY: number }
+  const [showManualSelector, setShowManualSelector] = useState(false);
+  const [manualSelectorFrame, setManualSelectorFrame] = useState(null);
 
   const detectPlayerByColor = useCallback(
     async (frameData) => {
@@ -65,7 +69,10 @@ function MoveHistoryEditor({ sessionGameId }) {
           stride: 2, // Skip pixels for performance
           maskThreshold: 100, // Person detection threshold
           colorThreshold: 95,
-          scanDepth: colorScanPercentage / 100 // Convert percentage to ratio (0.20 = 20%, 1.0 = 100%)
+          scanDepth: colorAnchor === 'manually' && manualScanBounds 
+            ? null // Manual bounds will be used instead
+            : colorScanPercentage / 100, // Convert percentage to ratio (0.20 = 20%, 1.0 = 100%)
+          manualBounds: colorAnchor === 'manually' ? manualScanBounds : null
         });
         if (segmentationResult) {
           return segmentationResult;
@@ -75,7 +82,7 @@ function MoveHistoryEditor({ sessionGameId }) {
       }
       return identifyPlayerByColor(frameData, colorA, colorB, { anchor: colorAnchor });
     },
-    [colorA, colorB, colorAnchor, colorScanPercentage]
+    [colorA, colorB, colorAnchor, colorScanPercentage, manualScanBounds]
   );
 
   // Load password from localStorage
@@ -714,8 +721,8 @@ function MoveHistoryEditor({ sessionGameId }) {
           </button>
         </div>
         
-        {/* AI Identification Controls */}
-        <div className="ai-controls">
+        {/* Bracelet Colors - Shared by both AI and Color */}
+        <div className="bracelet-colors-controls">
           <button 
             className="color-picker-toggle"
             onClick={() => setShowColorPicker(!showColorPicker)}
@@ -744,6 +751,10 @@ function MoveHistoryEditor({ sessionGameId }) {
               </div>
             </div>
           )}
+        </div>
+
+        {/* AI Identification Controls */}
+        <div className="ai-controls">
           <button 
             className="ai-btn ai-btn-all"
             onClick={handleAiIdentifyAll}
@@ -753,15 +764,6 @@ function MoveHistoryEditor({ sessionGameId }) {
               ? `Processing ${aiProgress.current}/${aiProgress.total}...` 
               : 'AI Identify All'}
           </button>
-          <button
-            className="ai-btn color-btn-all"
-            onClick={handleColorIdentifyAll}
-            disabled={colorProcessing}
-          >
-            {colorProcessing && colorProgress.total > 0
-              ? `🎨 Color ${colorProgress.current}/${colorProgress.total}...`
-              : '🎨 Color Identify All'}
-          </button>
           <button 
             className="ai-btn ai-btn-unknown"
             onClick={handleAiIdentifyUnknown}
@@ -770,6 +772,19 @@ function MoveHistoryEditor({ sessionGameId }) {
             {aiProcessing && aiProgress.total > 0 
               ? `Processing ${aiProgress.current}/${aiProgress.total}...` 
               : 'AI Identify Unknown'}
+          </button>
+        </div>
+
+        {/* Color Identification Controls */}
+        <div className="color-controls">
+          <button
+            className="ai-btn color-btn-all"
+            onClick={handleColorIdentifyAll}
+            disabled={colorProcessing}
+          >
+            {colorProcessing && colorProgress.total > 0
+              ? `🎨 Color ${colorProgress.current}/${colorProgress.total}...`
+              : '🎨 Color Identify All'}
           </button>
           <button
             className="ai-btn ai-btn-unknown color-btn-unknown"
@@ -784,24 +799,61 @@ function MoveHistoryEditor({ sessionGameId }) {
             <label>Color anchor:</label>
             <select
               value={colorAnchor}
-              onChange={(e) => setColorAnchor(e.target.value)}
+              onChange={(e) => {
+                setColorAnchor(e.target.value);
+                if (e.target.value === 'manually') {
+                  // Get a random frame to use for manual selection
+                  const moves = session?.moves || [];
+                  if (moves.length > 0) {
+                    const randomMove = moves[Math.floor(Math.random() * moves.length)];
+                    if (randomMove?.camera_frame) {
+                      setManualSelectorFrame(randomMove.camera_frame);
+                      setShowManualSelector(true);
+                    } else {
+                      alert('No frames available. Please ensure moves have camera frames.');
+                      setColorAnchor('bottom'); // Reset to previous value
+                    }
+                  } else {
+                    alert('No moves available.');
+                    setColorAnchor('bottom'); // Reset to previous value
+                  }
+                } else {
+                  setShowManualSelector(false);
+                  setManualScanBounds(null);
+                  setManualSelectorFrame(null);
+                }
+              }}
             >
               <option value="bottom">Bottom</option>
               <option value="top">Top</option>
+              <option value="manually">Manually</option>
             </select>
           </div>
-          <div className="color-scan-percentage">
-            <label>Scan area: {colorScanPercentage}%</label>
-            <input
-              type="range"
-              min="20"
-              max="100"
-              step="5"
-              value={colorScanPercentage}
-              onChange={(e) => setColorScanPercentage(Number(e.target.value))}
-              style={{ width: '120px', marginLeft: '8px' }}
-            />
-          </div>
+          {colorAnchor !== 'manually' && (
+            <div className="color-scan-percentage">
+              <label>Scan area: {colorScanPercentage}%</label>
+              <input
+                type="range"
+                min="20"
+                max="100"
+                step="5"
+                value={colorScanPercentage}
+                onChange={(e) => setColorScanPercentage(Number(e.target.value))}
+                style={{ width: '120px', marginLeft: '8px' }}
+              />
+            </div>
+          )}
+          {colorAnchor === 'manually' && manualScanBounds && (
+            <div className="manual-bounds-info">
+              <span>Manual: Y={manualScanBounds.topY} → {manualScanBounds.bottomY}</span>
+              <button 
+                onClick={() => setShowManualSelector(true)}
+                style={{ marginLeft: '8px', padding: '4px 8px' }}
+              >
+                Edit
+              </button>
+            </div>
+          )}
         </div>
       </header>
 
@@ -1004,6 +1056,21 @@ function MoveHistoryEditor({ sessionGameId }) {
         colorPreview={colorPreview}
         onClose={() => setColorPreview(null)}
       />
+
+      {showManualSelector && manualSelectorFrame && (
+        <ManualScanSelector
+          frameDataUrl={manualSelectorFrame}
+          onSave={(bounds) => {
+            setManualScanBounds(bounds);
+            setShowManualSelector(false);
+          }}
+          onCancel={() => {
+            setShowManualSelector(false);
+            setColorAnchor('bottom'); // Reset to default
+            setManualSelectorFrame(null);
+          }}
+        />
+      )}
     </div>
   );
 }
