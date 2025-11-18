@@ -4,8 +4,8 @@
  */
 
 // Environment flag - set to 'production' or 'development'
-const ENVIRONMENT = 'production'; // Change this to switch between environments
-//const ENVIRONMENT = 'development'; // Change this to switch between environments
+//const ENVIRONMENT = 'production'; // Change this to switch between environments
+const ENVIRONMENT = 'development'; // Change this to switch between environments
 
 const API_CONFIGS = {
   development: {
