@@ -1,4 +1,5 @@
 import { SelfieSegmentation } from '@mediapipe/selfie_segmentation';
+import { detectHandLandmarks } from './handLandmarker';
 
 const DEFAULT_SEGMENTATION_MODEL = 1;
 
@@ -166,6 +167,71 @@ const getHueDistance = (h1, h2) => {
 };
 
 const clamp = (value, min, max) => Math.min(Math.max(value, min), max);
+
+const sampleHSVFromPixelData = (data, width, height, x, y) => {
+  const clampedX = clamp(Math.round(x), 0, width - 1);
+  const clampedY = clamp(Math.round(y), 0, height - 1);
+  const idx = (clampedY * width + clampedX) * 4;
+  const r = data[idx];
+  const g = data[idx + 1];
+  const b = data[idx + 2];
+  return {
+    ...rgbToHsv(r, g, b),
+    r,
+    g,
+    b,
+    hex: rgbToHex(r, g, b)
+  };
+};
+
+const evaluateColorMatchHSV = (sample, hsvA, hsvB, {
+  hueThreshold = 50,  // Increased from 30 to 50 for more flexibility
+  minSaturation = 12, // Lowered from 20 to 12 to catch slightly desaturated colors
+  minValue = 12       // Lowered from 20 to 12 to catch slightly dark colors
+} = {}) => {
+  if (!sample) {
+    return { match: null, reason: 'no_sample' };
+  }
+
+  if (sample.s < minSaturation || sample.v < minValue) {
+    return {
+      match: null,
+      reason: 'low_saturation_or_value',
+      s: sample.s,
+      v: sample.v
+    };
+  }
+
+  const distA = hsvA ? getHueDistance(sample.h, hsvA.h) : 999;
+  const distB = hsvB ? getHueDistance(sample.h, hsvB.h) : 999;
+
+  const validA = distA <= hueThreshold;
+  const validB = distB <= hueThreshold;
+
+  if (!validA && !validB) {
+    return {
+      match: null,
+      reason: 'no_hue_match',
+      distA,
+      distB
+    };
+  }
+
+  if (validA && !validB) {
+    return { match: 'A', dist: distA, distA, distB };
+  }
+
+  if (!validA && validB) {
+    return { match: 'B', dist: distB, distA, distB };
+  }
+
+  return {
+    match: distA <= distB ? 'A' : 'B',
+    dist: Math.min(distA, distB),
+    distA,
+    distB
+  };
+};
 
 const createOverlayFromMask = (baseImage, width, height, mask, maskThreshold, highlights = []) => {
   const overlayCanvas = document.createElement('canvas');
@@ -429,7 +495,7 @@ const identifyPlayerBySegmentation = async (
   options = {}
 ) => {
   if (!frameDataUrl) {
-    return { suggestion: 'None', stats: { mode: 'segmentation' } };
+    return { suggestion: 'None', stats: { mode: 'segmentation-hsv' } };
   }
 
   // CONVERT TARGETS TO HSV
@@ -437,7 +503,7 @@ const identifyPlayerBySegmentation = async (
   const hsvB = normalizeColorToHSV(colorBConfig);
   if (!hsvA || !hsvB) {
     console.warn('[ColorDetector] Invalid color configs, returning None');
-    return { suggestion: 'None', stats: { mode: 'segmentation' } };
+    return { suggestion: 'None', stats: { mode: 'segmentation-hsv' } };
   }
 
   // Default configs with new HSV tuning parameters
@@ -448,9 +514,9 @@ const identifyPlayerBySegmentation = async (
     wristOffsetPercent = 0.15,
     searchRadius = 60,
     // NEW TUNING PARAMETERS
-    hueThreshold = 30,     // Degrees: How close the color must be (0-360)
-    minSaturation = 20,    // 0-100: Ignores grey/white/black pixels. CRITICAL.
-    minValue = 20          // 0-100: Ignores pitch black pixels.
+    hueThreshold = 50,     // Degrees: How close the color must be (0-360) - Relaxed from 30
+    minSaturation = 12,    // 0-100: Ignores grey/white/black pixels - Relaxed from 20
+    minValue = 12          // 0-100: Ignores pitch black pixels - Relaxed from 20
   } = options;
 
   try {
@@ -492,7 +558,7 @@ const identifyPlayerBySegmentation = async (
       return {
         suggestion: 'None',
         stats: {
-          mode: 'segmentation',
+          mode: 'segmentation-hsv',
           width,
           height,
           reason: 'person_area_too_small',
@@ -523,7 +589,7 @@ const identifyPlayerBySegmentation = async (
       return {
         suggestion: 'None',
         stats: {
-          mode: 'segmentation',
+          mode: 'segmentation-hsv',
           width,
           height,
           reason: 'no_tip_found_in_constrained_window',
@@ -538,60 +604,17 @@ const identifyPlayerBySegmentation = async (
     const wristY = clamp(tip.y + wristOffset, 0, height - 1);
     const wrist = { x: tip.x, y: wristY };
 
-    // Helper to get HSV at coords
-    const sampleHSVAt = (x, y) => {
-      const clampedX = clamp(Math.round(x), 0, width - 1);
-      const clampedY = clamp(Math.round(y), 0, height - 1);
-      const idx = (clampedY * width + clampedX) * 4;
-      const r = videoData[idx];
-      const g = videoData[idx + 1];
-      const b = videoData[idx + 2];
-      const hsv = rgbToHsv(r, g, b);
-      return {
-        ...hsv,
-        r,
-        g,
-        b,
-        hex: rgbToHex(r, g, b)
-      };
+    const evaluationOptions = {
+      hueThreshold,
+      minSaturation,
+      minValue
     };
 
-    const wristHSV = sampleHSVAt(wrist.x, wrist.y);
-    const tipHSV = sampleHSVAt(tip.x, tip.y);
+    const wristHSV = sampleHSVFromPixelData(videoData, width, height, wrist.x, wrist.y);
+    const tipHSV = sampleHSVFromPixelData(videoData, width, height, tip.x, tip.y);
 
-    // --- THE NEW EVALUATION LOGIC (HSV-based) ---
-    const evaluateMatch = (sample) => {
-      if (!sample) {
-        return { match: null, reason: 'no_sample' };
-      }
-
-      // 1. Filter out Grey/Dark pixels (Walls, Shadows, Ceiling)
-      if (sample.s < minSaturation || sample.v < minValue) {
-        return { match: null, reason: 'low_saturation_or_value', s: sample.s, v: sample.v };
-      }
-
-      const distA = hsvA ? getHueDistance(sample.h, hsvA.h) : 999;
-      const distB = hsvB ? getHueDistance(sample.h, hsvB.h) : 999;
-
-      // Check thresholds
-      const validA = distA <= hueThreshold;
-      const validB = distB <= hueThreshold;
-
-      if (validA && !validB) {
-        return { match: 'A', dist: distA, distA, distB };
-      }
-      if (!validA && validB) {
-        return { match: 'B', dist: distB, distA, distB };
-      }
-      if (validA && validB) {
-        return { match: distA < distB ? 'A' : 'B', dist: Math.min(distA, distB), distA, distB };
-      }
-
-      return { match: null, distA, distB };
-    };
-
-    const wristResult = evaluateMatch(wristHSV);
-    const tipResult = evaluateMatch(tipHSV);
+    const wristResult = evaluateColorMatchHSV(wristHSV, hsvA, hsvB, evaluationOptions);
+    const tipResult = evaluateColorMatchHSV(tipHSV, hsvA, hsvB, evaluationOptions);
 
     // Prefer wrist match over tip (wrist is more reliable for bracelet color)
     const suggestion = wristResult.match || tipResult.match || 'None';
@@ -801,8 +824,235 @@ const identifyPlayerBySegmentation = async (
   }
 };
 
+const identifyPlayerByHandLandmarker = async (
+  frameDataUrl,
+  colorAConfig,
+  colorBConfig,
+  options = {}
+) => {
+  if (!frameDataUrl) {
+    return { suggestion: 'None', stats: { mode: 'hand-landmarker' } };
+  }
+
+  const hsvA = normalizeColorToHSV(colorAConfig);
+  const hsvB = normalizeColorToHSV(colorBConfig);
+  if (!hsvA || !hsvB) {
+    console.warn('[HandLandmarker] Invalid color configs, returning None');
+    return { suggestion: 'None', stats: { mode: 'hand-landmarker' } };
+  }
+
+  const {
+    hueThreshold = 50,     // Relaxed from 30 for better color matching
+    minSaturation = 12,    // Relaxed from 20 to catch slightly desaturated colors
+    minValue = 12          // Relaxed from 20 to catch slightly dark colors
+  } = options;
+
+  try {
+    const imageElement = await loadImageElement(frameDataUrl);
+    const width = imageElement.naturalWidth || imageElement.width;
+    const height = imageElement.naturalHeight || imageElement.height;
+
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(imageElement, 0, 0, width, height);
+    const imageData = ctx.getImageData(0, 0, width, height);
+
+    const detection = await detectHandLandmarks(canvas);
+
+    if (!detection?.found || !detection.hands || detection.hands.length === 0) {
+      return {
+        suggestion: 'None',
+        stats: {
+          mode: 'hand-landmarker',
+          width,
+          height,
+          reason: detection?.reason || 'no_hand_detected',
+          handCount: 0
+        }
+      };
+    }
+
+    console.log('[ColorDetector] Target Player A HSV:', hsvA ? `H:${hsvA.h.toFixed(1)} S:${hsvA.s.toFixed(1)} V:${hsvA.v.toFixed(1)}` : 'Invalid');
+    console.log('[ColorDetector] Target Player B HSV:', hsvB ? `H:${hsvB.h.toFixed(1)} S:${hsvB.s.toFixed(1)} V:${hsvB.v.toFixed(1)}` : 'Invalid');
+    console.log('[ColorDetector] Thresholds:', `hue=${hueThreshold}°, minSat=${minSaturation}, minVal=${minValue}`);
+
+    const evaluationOptions = {
+      hueThreshold,
+      minSaturation,
+      minValue
+    };
+
+    // Process all detected hands
+    const handEvaluations = detection.hands.map((hand, handIndex) => {
+      const wristHSV = sampleHSVFromPixelData(imageData.data, width, height, hand.wrist.x, hand.wrist.y);
+      const tipHSV = sampleHSVFromPixelData(imageData.data, width, height, hand.tip.x, hand.tip.y);
+
+      console.log(`[ColorDetector] Hand ${handIndex + 1} wrist @ (${hand.wrist.x.toFixed(1)}, ${hand.wrist.y.toFixed(1)}):`, wristHSV.hex, `H:${wristHSV.h.toFixed(1)} S:${wristHSV.s.toFixed(1)} V:${wristHSV.v.toFixed(1)}`);
+      console.log(`[ColorDetector] Hand ${handIndex + 1} tip @ (${hand.tip.x.toFixed(1)}, ${hand.tip.y.toFixed(1)}):`, tipHSV.hex, `H:${tipHSV.h.toFixed(1)} S:${tipHSV.s.toFixed(1)} V:${tipHSV.v.toFixed(1)}`);
+
+      const wristResult = evaluateColorMatchHSV(wristHSV, hsvA, hsvB, evaluationOptions);
+      const tipResult = evaluateColorMatchHSV(tipHSV, hsvA, hsvB, evaluationOptions);
+
+      console.log(`[ColorDetector] Hand ${handIndex + 1} wrist match:`, wristResult.match || 'None', wristResult.reason || '', wristResult.distA !== undefined ? `(distA:${wristResult.distA.toFixed(1)}, distB:${wristResult.distB.toFixed(1)})` : '');
+      console.log(`[ColorDetector] Hand ${handIndex + 1} tip match:`, tipResult.match || 'None', tipResult.reason || '', tipResult.distA !== undefined ? `(distA:${tipResult.distA.toFixed(1)}, distB:${tipResult.distB.toFixed(1)})` : '');
+
+      return {
+        handIndex,
+        hand,
+        wristHSV,
+        tipHSV,
+        wristResult,
+        tipResult,
+        bestMatch: wristResult.match || tipResult.match || null,
+        bestMatchPoint: wristResult.match ? { ...hand.wrist, label: 'wrist' } : (tipResult.match ? { ...hand.tip, label: 'tip' } : null)
+      };
+    });
+
+    // Pick the best match from all hands (prefer wrist matches, then tip matches)
+    let suggestion = 'None';
+    let bestEvaluation = null;
+    let bestScore = -1;
+
+    for (const handEval of handEvaluations) {
+      if (handEval.wristResult.match) {
+        const score = handEval.wristResult.dist || 999;
+        if (bestScore < 0 || score < bestScore) {
+          bestScore = score;
+          bestEvaluation = handEval;
+          suggestion = handEval.wristResult.match;
+        }
+      }
+    }
+
+    // If no wrist match, try tip matches
+    if (!bestEvaluation) {
+      for (const handEval of handEvaluations) {
+        if (handEval.tipResult.match) {
+          const score = handEval.tipResult.dist || 999;
+          if (bestScore < 0 || score < bestScore) {
+            bestScore = score;
+            bestEvaluation = handEval;
+            suggestion = handEval.tipResult.match;
+          }
+        }
+      }
+    }
+
+    // Build preview with markers for ALL hands
+    const previewCanvas = document.createElement('canvas');
+    previewCanvas.width = width;
+    previewCanvas.height = height;
+    const previewCtx = previewCanvas.getContext('2d');
+    previewCtx.drawImage(imageElement, 0, 0, width, height);
+
+    // Draw markers for each hand with different colors/styles
+    handEvaluations.forEach((handEval, idx) => {
+      const hand = handEval.hand;
+      const isBest = bestEvaluation === handEval;
+      const markerSize = isBest ? 10 : 8;
+      const strokeWidth = isBest ? 3 : 2;
+
+      // Draw wrist marker (green circle with colored fill)
+      previewCtx.beginPath();
+      previewCtx.arc(hand.wrist.x, hand.wrist.y, markerSize, 0, Math.PI * 2);
+      previewCtx.fillStyle = `rgb(${handEval.wristHSV.r},${handEval.wristHSV.g},${handEval.wristHSV.b})`;
+      previewCtx.strokeStyle = isBest ? '#00FF00' : '#00FF88'; // Bright green for best match, lighter for others
+      previewCtx.lineWidth = strokeWidth;
+      previewCtx.fill();
+      previewCtx.stroke();
+
+      // Draw finger tip marker (yellow circle)
+      previewCtx.beginPath();
+      previewCtx.arc(hand.tip.x, hand.tip.y, markerSize - 2, 0, Math.PI * 2);
+      previewCtx.fillStyle = isBest ? '#FFFF00' : '#FFDD00'; // Bright yellow for best, dimmer for others
+      previewCtx.strokeStyle = '#FFA000';
+      previewCtx.lineWidth = strokeWidth;
+      previewCtx.fill();
+      previewCtx.stroke();
+
+      // Draw line connecting wrist to tip for clarity
+      previewCtx.beginPath();
+      previewCtx.moveTo(hand.wrist.x, hand.wrist.y);
+      previewCtx.lineTo(hand.tip.x, hand.tip.y);
+      previewCtx.strokeStyle = isBest ? 'rgba(255, 255, 0, 0.5)' : 'rgba(200, 200, 200, 0.3)';
+      previewCtx.lineWidth = 1;
+      previewCtx.stroke();
+
+      // Label the hand (Left/Right)
+      if (hand.handedness) {
+        previewCtx.fillStyle = isBest ? '#FFFFFF' : '#CCCCCC';
+        previewCtx.font = `${isBest ? 'bold' : 'normal'} 12px Arial`;
+        previewCtx.textAlign = 'center';
+        previewCtx.fillText(
+          `${hand.handedness} (${idx + 1})`,
+          hand.wrist.x,
+          hand.wrist.y - markerSize - 5
+        );
+      }
+    });
+
+    const preview = previewCanvas.toDataURL('image/png');
+
+    const stats = {
+      mode: 'hand-landmarker',
+      width,
+      height,
+      hueThreshold,
+      minSaturation,
+      minValue,
+      handCount: detection.handCount || detection.hands.length,
+      hands: handEvaluations.map(handEval => ({
+        handIndex: handEval.handIndex,
+        wrist: handEval.hand.wrist,
+        tip: handEval.hand.tip,
+        confidence: handEval.hand.confidence,
+        handedness: handEval.hand.handedness,
+        wristHSV: handEval.wristHSV,
+        tipHSV: handEval.tipHSV,
+        wristResult: handEval.wristResult,
+        tipResult: handEval.tipResult,
+        bestMatch: handEval.bestMatch,
+        bestMatchPoint: handEval.bestMatchPoint
+      })),
+      // Keep backward compatibility fields
+      wrist: bestEvaluation?.hand.wrist || detection.wrist,
+      tip: bestEvaluation?.hand.tip || detection.tip,
+      confidence: bestEvaluation?.hand.confidence || detection.confidence,
+      handedness: bestEvaluation?.hand.handedness || detection.handedness,
+      wristHSV: bestEvaluation?.wristHSV,
+      tipHSV: bestEvaluation?.tipHSV,
+      wristResult: bestEvaluation?.wristResult,
+      tipResult: bestEvaluation?.tipResult,
+      bestHandIndex: bestEvaluation?.handIndex
+    };
+
+    return {
+      suggestion,
+      stats,
+      preview,
+      maskPreview: null
+    };
+  } catch (error) {
+    console.error('[HandLandmarker] Error processing frame:', error);
+    return {
+      suggestion: 'None',
+      stats: {
+        mode: 'hand-landmarker',
+        reason: 'processing_error',
+        error: error?.message
+      }
+    };
+  }
+};
+
 export {
   identifyPlayerByColor,
   identifyPlayerBySegmentation,
-  normalizeColorToRGB
+  identifyPlayerByHandLandmarker,
+  normalizeColorToRGB,
+  normalizeColorToHSV,
+  rgbToHsv,
+  getHueDistance
 };

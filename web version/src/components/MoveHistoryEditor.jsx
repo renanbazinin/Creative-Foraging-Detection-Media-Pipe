@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getApiBaseUrl } from '../config/api.config';
 import './MoveHistoryEditor.css';
-import { identifyPlayerByColor, identifyPlayerBySegmentation } from '../utils/colorDetector';
+import { identifyPlayerByHandLandmarker, identifyPlayerBySegmentation } from '../utils/colorDetector';
 
 const API_BASE_URL = getApiBaseUrl();
 const ADMIN_PASSWORD_KEY = 'adminPassword';
@@ -40,17 +40,91 @@ function MoveHistoryEditor({ sessionGameId }) {
       if (!frameData) {
         return { suggestion: 'None', stats: null };
       }
+
+      console.log('[MoveHistoryEditor] Starting detection pipeline...');
+
+      const allAttempts = [];
+
+      // PRIORITY 1: Hand Landmarker (MediaPipe Hands) - Most accurate for hand detection
+      let handResult = null;
       try {
-        const segmentationResult = await identifyPlayerBySegmentation(frameData, colorA, colorB, {
-          anchor: colorAnchor
+        console.log('[MoveHistoryEditor] Trying Hand Landmarker...');
+        handResult = await identifyPlayerByHandLandmarker(frameData, colorA, colorB);
+        console.log('[MoveHistoryEditor] Hand Landmarker result:', {
+          found: handResult?.stats?.handCount || 0,
+          suggestion: handResult?.suggestion
         });
-        if (segmentationResult) {
-          return segmentationResult;
+        
+        allAttempts.push({
+          method: 'hand-landmarker',
+          result: handResult,
+          succeeded: handResult && handResult.suggestion && handResult.suggestion !== 'None'
+        });
+        
+        if (handResult && handResult.suggestion && handResult.suggestion !== 'None') {
+          console.log('[MoveHistoryEditor] ✓ Hand Landmarker succeeded!');
+          return { ...handResult, allAttempts };
         }
       } catch (err) {
-        console.warn('[MoveHistoryEditor] Segmentation detector failed, falling back to color bands:', err);
+        console.error('[MoveHistoryEditor] Hand landmarker error:', err);
+        allAttempts.push({
+          method: 'hand-landmarker',
+          error: err.message,
+          succeeded: false
+        });
       }
-      return identifyPlayerByColor(frameData, colorA, colorB, { anchor: colorAnchor });
+
+      // PRIORITY 2: Selfie Segmentation - Good for person detection
+      let segmentationResult = null;
+      try {
+        console.log('[MoveHistoryEditor] Falling back to Selfie Segmentation...');
+        segmentationResult = await identifyPlayerBySegmentation(frameData, colorA, colorB, {
+          anchor: colorAnchor
+        });
+
+        allAttempts.push({
+          method: 'segmentation',
+          result: segmentationResult,
+          succeeded: segmentationResult && segmentationResult.suggestion !== 'None'
+        });
+
+        if (segmentationResult && segmentationResult.suggestion !== 'None') {
+          console.log('[MoveHistoryEditor] ✓ Segmentation succeeded!');
+          return { ...segmentationResult, allAttempts };
+        }
+      } catch (err) {
+        console.error('[MoveHistoryEditor] Segmentation error:', err);
+        allAttempts.push({
+          method: 'segmentation',
+          error: err.message,
+          succeeded: false
+        });
+      }
+
+      // PRIORITY 3: Color-only detection - Fallback when no AI detection works
+      let colorResult = null;
+      try {
+        console.log('[MoveHistoryEditor] Falling back to color-only detection...');
+        colorResult = await identifyPlayerByColor(frameData, colorA, colorB, { anchor: colorAnchor });
+        console.log('[MoveHistoryEditor] Color-only result:', colorResult?.suggestion);
+        
+        allAttempts.push({
+          method: 'color-mask',
+          result: colorResult,
+          succeeded: colorResult && colorResult.suggestion !== 'None'
+        });
+        
+        return { ...colorResult, allAttempts };
+      } catch (err) {
+        console.error('[MoveHistoryEditor] Color-only error:', err);
+        allAttempts.push({
+          method: 'color-mask',
+          error: err.message,
+          succeeded: false
+        });
+      }
+
+      return { suggestion: 'None', stats: null, allAttempts };
     },
     [colorA, colorB, colorAnchor]
   );
@@ -565,7 +639,8 @@ function MoveHistoryEditor({ sessionGameId }) {
         colorB,
         calibrationA,
         calibrationB,
-        anchor: colorAnchor
+        anchor: colorAnchor,
+        allAttempts: result.allAttempts || []
       });
     } catch (err) {
       console.error(`[MoveHistoryEditor] Error color-identifying move:`, err);
@@ -675,12 +750,21 @@ function MoveHistoryEditor({ sessionGameId }) {
       ? 'Top edge (closest to ceiling camera)'
       : 'Bottom edge (closest to screen base)'
     : '—';
-  const colorPreviewMethodLabel = colorPreviewStats?.mode === 'segmentation'
-    ? 'Segmentation (MediaPipe Selfie)'
-    : 'Color band mask';
   const colorPreviewPixelLabel = colorPreviewTotalPixels
     ? colorPreviewTotalPixels.toLocaleString()
     : '—';
+  const formatPercent = (value) => {
+    if (typeof value !== 'number') return '—';
+    return `${(value * 100).toFixed(1)}%`;
+  };
+  const isSegmentationMode = colorPreviewStats?.mode?.startsWith('segmentation');
+  const isHandMode = colorPreviewStats?.mode === 'hand-landmarker';
+  const colorPreviewMethodLabel = (() => {
+    if (isHandMode) return 'Hand Landmarker (MediaPipe Tasks)';
+    if (isSegmentationMode) return 'Segmentation (MediaPipe Selfie)';
+    if (colorPreviewStats?.mode === 'colorMask') return 'Color band mask';
+    return 'Color analysis';
+  })();
 
   return (
     <div className="move-editor-container">
@@ -971,6 +1055,15 @@ function MoveHistoryEditor({ sessionGameId }) {
         <div className="image-modal" onClick={() => setColorPreview(null)}>
           <div className="image-modal-content color-preview-modal" onClick={(e) => e.stopPropagation()}>
             <button className="close-modal" onClick={() => setColorPreview(null)}>✕</button>
+            <div style={{ padding: '20px 20px 16px', backgroundColor: '#1a1a1a', borderBottom: '2px solid #2a2a2a' }}>
+              <h2 style={{ margin: '0 0 8px 0', color: '#4CAF50', fontSize: '20px', fontWeight: 600 }}>
+                🔍 Frame Detection Analysis
+              </h2>
+              <p style={{ margin: 0, color: '#aaa', fontSize: '14px' }}>
+                Move #{colorPreview.moveId} • <span style={{ color: colorPreview.suggestion === 'A' || colorPreview.suggestion === 'B' ? '#4CAF50' : '#f44336', fontWeight: 600 }}>{colorPreview.suggestion === 'A' ? 'Player A' : colorPreview.suggestion === 'B' ? 'Player B' : 'No Match'}</span>
+              </p>
+            </div>
+            <div>
             <div className="color-preview-grid">
               <div className="color-preview-panel">
                 <h3>Original Frame</h3>
@@ -981,13 +1074,15 @@ function MoveHistoryEditor({ sessionGameId }) {
                 {colorPreview.preview ? (
                   <>
                     <p className="mask-label">
-                      {colorPreview.stats?.mode === 'segmentation'
+                      {isSegmentationMode
                         ? 'Color Mask + Person Glow (Cyan = MediaPipe Person Coverage)'
-                        : 'Color Overlay'}
+                        : isHandMode
+                          ? 'Hand Landmarker Overlay: 🟢 Green circles = Wrist (color sample), 🟡 Yellow circles = Index tip, Lines connect wrist to tip'
+                          : 'Color Overlay'}
                     </p>
                     <img src={colorPreview.preview} alt="Mask preview" />
                   </>
-                ) : colorPreview.maskPreview ? (
+                ) : (isSegmentationMode && colorPreview.maskPreview) ? (
                   <>
                     <p className="mask-label">MediaPipe Segmentation (White = Person, Black = Background)</p>
                     <img src={colorPreview.maskPreview} alt="MediaPipe mask" />
@@ -997,6 +1092,81 @@ function MoveHistoryEditor({ sessionGameId }) {
                 )}
               </div>
             </div>
+            {colorPreview.allAttempts && colorPreview.allAttempts.length > 0 && (
+              <div className="all-attempts-section">
+                <h3 style={{ margin: '0 0 1rem 0', color: '#FFC107', fontSize: '18px', fontWeight: 600 }}>
+                  All Detection Attempts (Priority Order)
+                </h3>
+                <div className="attempts-grid">
+                  {colorPreview.allAttempts.map((attempt, idx) => {
+                    const methodLabels = {
+                      'hand-landmarker': '1️⃣ Hand Landmarker',
+                      'segmentation': '2️⃣ Segmentation',
+                      'color-mask': '3️⃣ Color Mask'
+                    };
+                    const isSuccess = attempt.succeeded;
+                    return (
+                      <div
+                        key={idx}
+                        className={`attempt-card ${isSuccess ? 'success' : 'failed'}`}
+                      >
+                        <h4 className="attempt-title">
+                          {methodLabels[attempt.method] || attempt.method}
+                        </h4>
+                        {isSuccess ? (
+                          <>
+                            <p className="attempt-status success">
+                              ✓ SUCCESS
+                            </p>
+                            <p className="attempt-result">
+                              Suggested: <strong>{attempt.result.suggestion === 'A' ? 'Player A' : attempt.result.suggestion === 'B' ? 'Player B' : 'None'}</strong>
+                            </p>
+                            {attempt.result.preview && (
+                              <img
+                                src={attempt.result.preview}
+                                alt={`${attempt.method} preview`}
+                                className="attempt-preview"
+                              />
+                            )}
+                          </>
+                        ) : (
+                          <>
+                            <p className="attempt-status failed">
+                              ✗ FAILED
+                            </p>
+                            {attempt.error ? (
+                              <p className="attempt-error">
+                                Error: {attempt.error}
+                              </p>
+                            ) : attempt.result ? (
+                              <>
+                                <p className="attempt-result">
+                                  Result: <strong>{attempt.result.suggestion || 'None'}</strong>
+                                </p>
+                                {attempt.result.stats?.reason && (
+                                  <p className="attempt-reason">
+                                    Reason: {attempt.result.stats.reason}
+                                  </p>
+                                )}
+                                {attempt.result.preview && (
+                                  <img
+                                    src={attempt.result.preview}
+                                    alt={`${attempt.method} preview`}
+                                    className="attempt-preview failed"
+                                  />
+                                )}
+                              </>
+                            ) : (
+                              <p className="attempt-error">No result</p>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
             {colorPreview.stats && (
               <div className="color-preview-stats">
                 <div className="color-preview-meta">
@@ -1009,9 +1179,11 @@ function MoveHistoryEditor({ sessionGameId }) {
                   <div>
                     <strong>Method:</strong> {colorPreviewMethodLabel}
                   </div>
-                  <div>
-                    <strong>Anchor:</strong> {colorPreviewAnchorLabel}
-                  </div>
+                  {isSegmentationMode && (
+                    <div>
+                      <strong>Anchor:</strong> {colorPreviewAnchorLabel}
+                    </div>
+                  )}
                   <div>
                     <strong>Suggestion:</strong>{' '}
                     {colorPreview.suggestion === 'A'
@@ -1028,13 +1200,29 @@ function MoveHistoryEditor({ sessionGameId }) {
                       {colorPreview.stats.detectionPoint.y})
                     </div>
                   )}
-                  {colorPreview.stats.mode === 'segmentation' &&
+                  {isSegmentationMode &&
                     typeof colorPreview.stats.personPixels === 'number' && (
                       <div>
                         <strong>Person coverage:</strong>{' '}
                         {formatCoverageLabel(colorPreview.stats.personPixels)}
                       </div>
                     )}
+                  {isHandMode && typeof colorPreview.stats.handCount === 'number' && (
+                    <div>
+                      <strong>Hands detected:</strong> {colorPreview.stats.handCount}
+                    </div>
+                  )}
+                  {isHandMode && typeof colorPreview.stats.confidence === 'number' && (
+                    <div>
+                      <strong>Best hand confidence:</strong> {formatPercent(colorPreview.stats.confidence)}
+                    </div>
+                  )}
+                  {isHandMode && colorPreview.stats.handedness && (
+                    <div>
+                      <strong>Best hand:</strong> {colorPreview.stats.handedness}
+                      {typeof colorPreview.stats.bestHandIndex === 'number' && ` (Hand ${colorPreview.stats.bestHandIndex + 1})`}
+                    </div>
+                  )}
                   {colorPreview.stats.reason && (
                     <div>
                       <strong>Note:</strong> {colorPreview.stats.reason}
@@ -1067,7 +1255,7 @@ function MoveHistoryEditor({ sessionGameId }) {
                     )}
                   </div>
                 </div>
-                {colorPreview.stats.mode === 'segmentation' ? (
+                {isSegmentationMode && (
                   <div className="segmentation-breakdown">
                     <div className="segmentation-card">
                       <h4>Tip point</h4>
@@ -1081,17 +1269,17 @@ function MoveHistoryEditor({ sessionGameId }) {
                         <span>Color:</span>
                         <div
                           className="color-chip large"
-                          style={{ backgroundColor: colorPreview.stats.tipColor?.hex || '#000' }}
+                          style={{ backgroundColor: colorPreview.stats.tipHSV?.hex || '#000' }}
                         />
-                        <code>{colorPreview.stats.tipColor?.hex || '—'}</code>
+                        <code>{colorPreview.stats.tipHSV?.hex || '—'}</code>
                       </div>
                       <div className="diff-row">
                         <span>Δ Player A:</span>
-                        <span>{formatDiffValue(colorPreview.stats.tipDiffs?.diffA)}</span>
+                        <span>{formatDiffValue(colorPreview.stats.tipResult?.distA)}</span>
                       </div>
                       <div className="diff-row">
                         <span>Δ Player B:</span>
-                        <span>{formatDiffValue(colorPreview.stats.tipDiffs?.diffB)}</span>
+                        <span>{formatDiffValue(colorPreview.stats.tipResult?.distB)}</span>
                       </div>
                     </div>
                     <div className="segmentation-card">
@@ -1106,21 +1294,188 @@ function MoveHistoryEditor({ sessionGameId }) {
                         <span>Color:</span>
                         <div
                           className="color-chip large"
-                          style={{ backgroundColor: colorPreview.stats.wristColor?.hex || '#000' }}
+                          style={{ backgroundColor: colorPreview.stats.wristHSV?.hex || '#000' }}
                         />
-                        <code>{colorPreview.stats.wristColor?.hex || '—'}</code>
+                        <code>{colorPreview.stats.wristHSV?.hex || '—'}</code>
                       </div>
                       <div className="diff-row">
                         <span>Δ Player A:</span>
-                        <span>{formatDiffValue(colorPreview.stats.wristDiffs?.diffA)}</span>
+                        <span>{formatDiffValue(colorPreview.stats.wristResult?.distA)}</span>
                       </div>
                       <div className="diff-row">
                         <span>Δ Player B:</span>
-                        <span>{formatDiffValue(colorPreview.stats.wristDiffs?.diffB)}</span>
+                        <span>{formatDiffValue(colorPreview.stats.wristResult?.distB)}</span>
                       </div>
                     </div>
                   </div>
-                ) : (
+                )}
+                {isHandMode && colorPreview.stats.hands && colorPreview.stats.hands.length > 0 && (
+                  <div className="segmentation-breakdown">
+                    <h3 style={{ marginBottom: '1rem', fontSize: '1.1rem' }}>
+                      All Detected Hands ({colorPreview.stats.hands.length})
+                    </h3>
+                    {colorPreview.stats.hands.map((handData, idx) => {
+                      const isBest = colorPreview.stats.bestHandIndex === idx;
+                      return (
+                        <div
+                          key={idx}
+                          className="segmentation-card"
+                          style={{
+                            border: isBest ? '2px solid #00FF00' : '1px solid #ccc',
+                            backgroundColor: isBest ? 'rgba(0, 255, 0, 0.05)' : 'transparent'
+                          }}
+                        >
+                          <h4>
+                            Hand {idx + 1}: {handData.handedness || 'Unknown'}
+                            {isBest && <span style={{ color: '#00FF00', marginLeft: '0.5rem' }}>★ Best Match</span>}
+                          </h4>
+                          {typeof handData.confidence === 'number' && (
+                            <p>
+                              <strong>Confidence:</strong> {formatPercent(handData.confidence)}
+                            </p>
+                          )}
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '0.5rem' }}>
+                            <div>
+                              <h5 style={{ marginBottom: '0.25rem', fontSize: '0.9rem' }}>
+                                🟢 Wrist (color sample)
+                              </h5>
+                              <p style={{ fontSize: '0.85rem', margin: '0.25rem 0' }}>
+                                <strong>Coords:</strong>{' '}
+                                {handData.wrist
+                                  ? `(${handData.wrist.x.toFixed(1)}, ${handData.wrist.y.toFixed(1)})`
+                                  : '—'}
+                              </p>
+                              <div className="segmentation-color-row" style={{ margin: '0.5rem 0' }}>
+                                <span>Color:</span>
+                                <div
+                                  className="color-chip large"
+                                  style={{ backgroundColor: handData.wristHSV?.hex || '#000' }}
+                                />
+                                <code>{handData.wristHSV?.hex || '—'}</code>
+                              </div>
+                              <div className="diff-row">
+                                <span>Δ Player A:</span>
+                                <span>{formatDiffValue(handData.wristResult?.distA)}</span>
+                              </div>
+                              <div className="diff-row">
+                                <span>Δ Player B:</span>
+                                <span>{formatDiffValue(handData.wristResult?.distB)}</span>
+                              </div>
+                              {handData.wristResult?.match && (
+                                <p style={{ color: '#00AA00', fontWeight: 'bold', marginTop: '0.25rem' }}>
+                                  ✓ Matches: Player {handData.wristResult.match}
+                                </p>
+                              )}
+                              {handData.wristResult?.reason && (
+                                <p style={{ fontSize: '0.8rem', fontStyle: 'italic', color: '#666' }}>
+                                  {handData.wristResult.reason}
+                                </p>
+                              )}
+                            </div>
+                            <div>
+                              <h5 style={{ marginBottom: '0.25rem', fontSize: '0.9rem' }}>
+                                🟡 Index tip
+                              </h5>
+                              <p style={{ fontSize: '0.85rem', margin: '0.25rem 0' }}>
+                                <strong>Coords:</strong>{' '}
+                                {handData.tip
+                                  ? `(${handData.tip.x.toFixed(1)}, ${handData.tip.y.toFixed(1)})`
+                                  : '—'}
+                              </p>
+                              <div className="segmentation-color-row" style={{ margin: '0.5rem 0' }}>
+                                <span>Color:</span>
+                                <div
+                                  className="color-chip large"
+                                  style={{ backgroundColor: handData.tipHSV?.hex || '#000' }}
+                                />
+                                <code>{handData.tipHSV?.hex || '—'}</code>
+                              </div>
+                              <div className="diff-row">
+                                <span>Δ Player A:</span>
+                                <span>{formatDiffValue(handData.tipResult?.distA)}</span>
+                              </div>
+                              <div className="diff-row">
+                                <span>Δ Player B:</span>
+                                <span>{formatDiffValue(handData.tipResult?.distB)}</span>
+                              </div>
+                              {handData.tipResult?.match && (
+                                <p style={{ color: '#00AA00', fontWeight: 'bold', marginTop: '0.25rem' }}>
+                                  ✓ Matches: Player {handData.tipResult.match}
+                                </p>
+                              )}
+                              {handData.tipResult?.reason && (
+                                <p style={{ fontSize: '0.8rem', fontStyle: 'italic', color: '#666' }}>
+                                  {handData.tipResult.reason}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+                {isHandMode && (!colorPreview.stats.hands || colorPreview.stats.hands.length === 0) && (
+                  <div className="segmentation-breakdown">
+                    <div className="segmentation-card">
+                      <h4>Wrist (color sample)</h4>
+                      <p>
+                        <strong>Coords:</strong>{' '}
+                        {colorPreview.stats.wrist
+                          ? `(${colorPreview.stats.wrist.x.toFixed(1)}, ${colorPreview.stats.wrist.y.toFixed(1)})`
+                          : '—'}
+                      </p>
+                      <div className="segmentation-color-row">
+                        <span>Color:</span>
+                        <div
+                          className="color-chip large"
+                          style={{ backgroundColor: colorPreview.stats.wristHSV?.hex || '#000' }}
+                        />
+                        <code>{colorPreview.stats.wristHSV?.hex || '—'}</code>
+                      </div>
+                      <div className="diff-row">
+                        <span>Δ Player A:</span>
+                        <span>{formatDiffValue(colorPreview.stats.wristResult?.distA)}</span>
+                      </div>
+                      <div className="diff-row">
+                        <span>Δ Player B:</span>
+                        <span>{formatDiffValue(colorPreview.stats.wristResult?.distB)}</span>
+                      </div>
+                      {colorPreview.stats.wristResult?.reason && (
+                        <p><em>{colorPreview.stats.wristResult.reason}</em></p>
+                      )}
+                    </div>
+                    <div className="segmentation-card">
+                      <h4>Index tip</h4>
+                      <p>
+                        <strong>Coords:</strong>{' '}
+                        {colorPreview.stats.tip
+                          ? `(${colorPreview.stats.tip.x.toFixed(1)}, ${colorPreview.stats.tip.y.toFixed(1)})`
+                          : '—'}
+                      </p>
+                      <div className="segmentation-color-row">
+                        <span>Color:</span>
+                        <div
+                          className="color-chip large"
+                          style={{ backgroundColor: colorPreview.stats.tipHSV?.hex || '#000' }}
+                        />
+                        <code>{colorPreview.stats.tipHSV?.hex || '—'}</code>
+                      </div>
+                      <div className="diff-row">
+                        <span>Δ Player A:</span>
+                        <span>{formatDiffValue(colorPreview.stats.tipResult?.distA)}</span>
+                      </div>
+                      <div className="diff-row">
+                        <span>Δ Player B:</span>
+                        <span>{formatDiffValue(colorPreview.stats.tipResult?.distB)}</span>
+                      </div>
+                      {colorPreview.stats.tipResult?.reason && (
+                        <p><em>{colorPreview.stats.tipResult.reason}</em></p>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {!isSegmentationMode && !isHandMode && colorPreview.stats.mode === 'colorMask' && (
                   <div className="color-preview-breakdown">
                     <div className="breakdown-card">
                       <h4>Player A band</h4>
@@ -1146,8 +1501,25 @@ function MoveHistoryEditor({ sessionGameId }) {
                     </div>
                   </div>
                 )}
+                {colorPreview.stats.handFallback && (
+                  <div className="segmentation-card">
+                    <h4>Hand attempt (fallback)</h4>
+                    {colorPreview.stats.handFallback.reason && (
+                      <p>
+                        <strong>Reason:</strong> {colorPreview.stats.handFallback.reason}
+                      </p>
+                    )}
+                    {colorPreview.stats.handFallback.wrist && (
+                      <p>
+                        <strong>Wrist sample:</strong>{' '}
+                        ({colorPreview.stats.handFallback.wrist.x.toFixed(1)}, {colorPreview.stats.handFallback.wrist.y.toFixed(1)})
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
             )}
+            </div>
           </div>
         </div>
       )}
