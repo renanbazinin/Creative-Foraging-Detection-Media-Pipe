@@ -1,8 +1,11 @@
 import { SelfieSegmentation } from '@mediapipe/selfie_segmentation';
 import { FilesetResolver, ImageSegmenter } from '@mediapipe/tasks-vision';
+// Import the local model file URL (Vite syntax)
+import multiclassModelUrl from './selfie_multiclass_256x256.tflite?url';
 
 const DEFAULT_SEGMENTATION_MODEL = 1;
-const MULTICLASS_MODEL_URL = 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
+// Use the local model if available, otherwise fall back to CDN (though we expect local to work)
+const MULTICLASS_MODEL_URL = multiclassModelUrl || 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
 
 // Normalize a color input (hex string or HSV-like object) into RGB
 const normalizeColorToRGB = (input) => {
@@ -341,6 +344,108 @@ const identifyPlayerByColor = (
   }
 });
 
+// Helper: Finds connected blobs and filters by relative size (compared to largest blob)
+const countMassiveBlobs = (points, width, height, stride, minBlobRatio = 0.1) => {
+  if (points.length === 0) {
+    return { count: 0, pixels: [], largestBlobSize: 0 };
+  }
+
+  // 1. Create a temporary grid to track visited pixels
+  // 0 = empty, 1 = has pixel, 2 = visited
+  const grid = new Int32Array(width * height);
+  
+  // Populate grid with our matching points
+  for (const p of points) {
+    const idx = p.y * width + p.x;
+    if (idx >= 0 && idx < grid.length) {
+      grid[idx] = 1;
+    }
+  }
+
+  const allBlobs = [];
+  const neighborOffsets = [
+    { dx: stride, dy: 0 },   // Right
+    { dx: -stride, dy: 0 },  // Left
+    { dx: 0, dy: stride },   // Down
+    { dx: 0, dy: -stride }   // Up
+  ];
+
+  // 2. Find all blobs using Flood Fill (BFS)
+  for (const p of points) {
+    const idx = p.y * width + p.x;
+    
+    // If this pixel is not marked as '1' (it's either 0 or already visited 2), skip
+    if (idx < 0 || idx >= grid.length || grid[idx] !== 1) continue;
+
+    // Start Flood Fill for this new blob
+    let currentBlobSize = 0;
+    const queue = [{ x: p.x, y: p.y }];
+    grid[idx] = 2; // Mark as visited immediately
+    
+    const currentBlobPixels = [];
+
+    let head = 0;
+    while (head < queue.length) {
+      const { x, y } = queue[head++];
+      currentBlobSize++;
+      currentBlobPixels.push({ x, y });
+
+      // Check neighbors
+      for (const offset of neighborOffsets) {
+        const nx = x + offset.dx;
+        const ny = y + offset.dy;
+
+        // Boundary checks
+        if (nx >= 0 && nx < width && ny >= 0 && ny < height) {
+          const nIdx = ny * width + nx;
+          if (nIdx >= 0 && nIdx < grid.length && grid[nIdx] === 1) {
+            grid[nIdx] = 2; // Mark visited
+            queue.push({ x: nx, y: ny });
+          }
+        }
+      }
+    }
+
+    allBlobs.push({
+      size: currentBlobSize,
+      pixels: currentBlobPixels
+    });
+  }
+
+  if (allBlobs.length === 0) {
+    return { count: 0, pixels: [], largestBlobSize: 0 };
+  }
+
+  // 3. Find the largest blob
+  const largestBlob = allBlobs.reduce((max, blob) => 
+    blob.size > max.size ? blob : max
+  );
+  const largestBlobSize = largestBlob.size;
+
+  // 4. Calculate minimum blob size as percentage of largest blob
+  const minBlobSize = Math.max(1, Math.floor(largestBlobSize * minBlobRatio));
+
+  // 5. Filter: Keep only blobs that are at least minBlobRatio of the largest blob
+  let totalSignificantPixels = 0;
+  const acceptedBlobs = [];
+
+  for (const blob of allBlobs) {
+    if (blob.size >= minBlobSize) {
+      totalSignificantPixels += blob.size;
+      acceptedBlobs.push(...blob.pixels);
+    }
+  }
+
+  return {
+    count: totalSignificantPixels,
+    pixels: acceptedBlobs,
+    largestBlobSize,
+    minBlobSize,
+    totalBlobs: allBlobs.length,
+    filteredBlobs: allBlobs.filter(b => b.size >= minBlobSize).length
+  };
+};
+
 const identifyPlayerBySegmentation = async (
   frameDataUrl,
   colorAConfig,
@@ -463,11 +568,9 @@ const identifyPlayerBySegmentation = async (
       }
     }
 
-    // 5. Analyze Colors ONLY in the Wrist Zone
-    let pixelsA = 0;
-    let pixelsB = 0;
-    const armPixelsA = [];
-    const armPixelsB = [];
+    // 5. Collect ALL raw candidate pixels first (before blob filtering)
+    const candidatesA = [];
+    const candidatesB = [];
 
     for (let y = startY; y < endY; y += stride) {
       for (let x = 0; x < width; x += stride) {
@@ -485,16 +588,26 @@ const identifyPlayerBySegmentation = async (
 
         // Strict matching: Must be closer to one color AND within threshold
         if (dA < sqThresh && dA < dB) {
-          pixelsA++;
-          armPixelsA.push({ x, y, idx });
+          candidatesA.push({ x, y });
         } else if (dB < sqThresh && dB < dA) {
-          pixelsB++;
-          armPixelsB.push({ x, y, idx });
+          candidatesB.push({ x, y });
         }
       }
     }
 
-    // 6. Decision Logic
+    // 6. Apply Blob Filtering (removes noise - small scattered pixels)
+    // minBlobRatio: Keep only blobs that are at least X% of the largest blob (default 10%)
+    const minBlobRatio = options.minBlobRatio ?? 0.1; // 10% of largest blob
+    
+    const blobResultA = countMassiveBlobs(candidatesA, width, height, stride, minBlobRatio);
+    const blobResultB = countMassiveBlobs(candidatesB, width, height, stride, minBlobRatio);
+
+    const pixelsA = blobResultA.count;
+    const pixelsB = blobResultB.count;
+    const armPixelsA = blobResultA.pixels.map(p => ({ ...p, idx: (p.y * width + p.x) * 4 }));
+    const armPixelsB = blobResultB.pixels.map(p => ({ ...p, idx: (p.y * width + p.x) * 4 }));
+
+    // 7. Decision Logic
     // We need a minimum number of pixels to be confident (ignoring noise)
     const MIN_PIXELS = 50; 
     let suggestion = 'None';
@@ -502,10 +615,28 @@ const identifyPlayerBySegmentation = async (
 
     if (pixelsA > MIN_PIXELS && pixelsA > pixelsB) {
       suggestion = 'A';
-      bestArm = { color: 'A', pixelCount: pixelsA, minY: startY, maxY: endY, anchorY: tipY };
+      bestArm = { 
+        color: 'A', 
+        pixelCount: pixelsA, 
+        minY: startY, 
+        maxY: endY, 
+        anchorY: tipY,
+        rawPixels: candidatesA.length,
+        largestBlobSize: blobResultA.largestBlobSize,
+        minBlobSize: blobResultA.minBlobSize
+      };
     } else if (pixelsB > MIN_PIXELS && pixelsB > pixelsA) {
       suggestion = 'B';
-      bestArm = { color: 'B', pixelCount: pixelsB, minY: startY, maxY: endY, anchorY: tipY };
+      bestArm = { 
+        color: 'B', 
+        pixelCount: pixelsB, 
+        minY: startY, 
+        maxY: endY, 
+        anchorY: tipY,
+        rawPixels: candidatesB.length,
+        largestBlobSize: blobResultB.largestBlobSize,
+        minBlobSize: blobResultB.minBlobSize
+      };
     }
 
     // 7. Generate Debug Preview (Shows the Scan Zone)
@@ -554,45 +685,65 @@ const identifyPlayerBySegmentation = async (
       }
       ctx.putImageData(overlayImageData, 0, 0);
 
-      // Highlight pixels with color matches in the scan zone
+      // Highlight ONLY filtered blob pixels (noise removed - only large connected blobs)
       const colorOverlayImageData = ctx.createImageData(width, height);
       const colorOverlayPixels = colorOverlayImageData.data;
       
-      // Mark color A pixels in bright red (more visible)
+      // Mark filtered color A pixels in bright red (only large blobs, noise filtered out)
       for (const pixel of armPixelsA) {
         const idx = pixel.idx;
-        colorOverlayPixels[idx] = 255;     // R (red)
-        colorOverlayPixels[idx + 1] = 0;   // G
-        colorOverlayPixels[idx + 2] = 0;   // B
-        colorOverlayPixels[idx + 3] = 150; // A (59% opacity - more visible)
+        if (idx >= 0 && idx < colorOverlayPixels.length - 3) {
+          colorOverlayPixels[idx] = 255;     // R (red)
+          colorOverlayPixels[idx + 1] = 0;   // G
+          colorOverlayPixels[idx + 2] = 0;   // B
+          colorOverlayPixels[idx + 3] = 180; // A (70% opacity - very visible)
+        }
       }
       
-      // Mark color B pixels in bright blue (more visible)
+      // Mark filtered color B pixels in bright blue (only large blobs, noise filtered out)
       for (const pixel of armPixelsB) {
         const idx = pixel.idx;
-        colorOverlayPixels[idx] = 0;       // R
-        colorOverlayPixels[idx + 1] = 100; // G
-        colorOverlayPixels[idx + 2] = 255; // B (blue)
-        colorOverlayPixels[idx + 3] = 150; // A (59% opacity - more visible)
+        if (idx >= 0 && idx < colorOverlayPixels.length - 3) {
+          colorOverlayPixels[idx] = 0;       // R
+          colorOverlayPixels[idx + 1] = 100; // G
+          colorOverlayPixels[idx + 2] = 255; // B (blue)
+          colorOverlayPixels[idx + 3] = 180; // A (70% opacity - very visible)
+        }
       }
       
       ctx.putImageData(colorOverlayImageData, 0, 0);
 
-      // Draw Scan Lines
-      ctx.strokeStyle = '#00FF00'; // Green line = Tip
-      ctx.lineWidth = 2;
+      // Draw Scan Area Boundary Lines (Top and Bottom of scan zone)
+      ctx.globalCompositeOperation = 'source-over';
+      
+      // Top boundary line (start of scan area)
+      ctx.strokeStyle = '#00FF00'; // Green = Top boundary
+      ctx.lineWidth = 3;
       ctx.setLineDash([]);
       ctx.beginPath(); 
-      ctx.moveTo(0, tipY); 
-      ctx.lineTo(width, tipY); 
+      ctx.moveTo(0, startY); 
+      ctx.lineTo(width, startY); 
       ctx.stroke();
 
-      ctx.strokeStyle = '#FFFF00'; // Yellow line = Cutoff (Wrist End)
+      // Bottom boundary line (end of scan area)
+      ctx.strokeStyle = '#FFFF00'; // Yellow = Bottom boundary
+      ctx.lineWidth = 3;
       ctx.setLineDash([5, 5]);
       ctx.beginPath(); 
-      ctx.moveTo(0, anchor === 'top' ? endY : startY); 
-      ctx.lineTo(width, anchor === 'top' ? endY : startY); 
+      ctx.moveTo(0, endY); 
+      ctx.lineTo(width, endY); 
       ctx.stroke();
+
+      // Optional: Draw tip line in a different color/style if it's different from startY
+      if (tipY !== startY && tipY !== endY) {
+        ctx.strokeStyle = '#FF00FF'; // Magenta = Tip (where person was first detected)
+        ctx.lineWidth = 2;
+        ctx.setLineDash([2, 2]);
+        ctx.beginPath(); 
+        ctx.moveTo(0, tipY); 
+        ctx.lineTo(width, tipY); 
+        ctx.stroke();
+      }
 
       preview = previewCanvas.toDataURL('image/png');
 
@@ -626,11 +777,28 @@ const identifyPlayerBySegmentation = async (
       height,
       pixelsA,
       pixelsB,
+      rawPixelsA: candidatesA.length,
+      rawPixelsB: candidatesB.length,
       tipY,
       scanDepth: pixelDepth,
       scanDepthRatio,
       anchor,
-      bestArm
+      bestArm,
+      blobInfoA: {
+        largestBlobSize: blobResultA.largestBlobSize,
+        minBlobSize: blobResultA.minBlobSize,
+        totalBlobs: blobResultA.totalBlobs,
+        filteredBlobs: blobResultA.filteredBlobs,
+        droppedPixels: candidatesA.length - pixelsA
+      },
+      blobInfoB: {
+        largestBlobSize: blobResultB.largestBlobSize,
+        minBlobSize: blobResultB.minBlobSize,
+        totalBlobs: blobResultB.totalBlobs,
+        filteredBlobs: blobResultB.filteredBlobs,
+        droppedPixels: candidatesB.length - pixelsB
+      },
+      minBlobRatio
     };
 
     return {
@@ -1046,10 +1214,118 @@ const identifyPlayerByArmSegmentation = async (
   }
 };
 
+/**
+ * Run multiclass segmentation and return visualization for all 6 classes
+ */
+const getMulticlassSegmentation = async (imageSource) => {
+  try {
+    const imageElement = await loadImageElement(imageSource);
+    const width = imageElement.naturalWidth || imageElement.width;
+    const height = imageElement.naturalHeight || imageElement.height;
+
+    // Use the same segmenter instance/config
+    const segmenter = await getImageSegmenter();
+    const results = segmenter.segment(imageElement);
+
+    if (!results.categoryMask) {
+      throw new Error('No category mask returned');
+    }
+
+    // Classes defined by the model
+    const classes = [
+      { id: 0, name: 'Background', desc: 'Walls, ceiling, screen', color: [0, 0, 0] },
+      { id: 1, name: 'Hair', desc: 'Hair', color: [255, 140, 0] }, // Dark Orange
+      { id: 2, name: 'Body Skin', desc: 'Arms, neck (Your "Arm" layer)', color: [255, 0, 0] }, // Red
+      { id: 3, name: 'Face Skin', desc: 'Face skin', color: [255, 200, 100] }, // Skin tone
+      { id: 4, name: 'Clothes', desc: 'T-shirt, etc.', color: [0, 100, 255] }, // Blue
+      { id: 5, name: 'Others', desc: 'Accessories (Watch, wristband)', color: [255, 255, 0] } // Yellow
+    ];
+
+    // Extract mask data
+    let maskData;
+    if (results.categoryMask.getAsUint8Array) {
+      maskData = results.categoryMask.getAsUint8Array();
+    } else if (results.categoryMask.canvas) {
+      // Fallback if getAsUint8Array is missing (e.g. older version or different mode)
+       const ctx = results.categoryMask.canvas.getContext('2d');
+       maskData = ctx.getImageData(0,0, width, height).data;
+       // If data is RGBA, we need to extract one channel or assume grayscale
+       if (maskData.length === width * height * 4) {
+          const temp = new Uint8Array(width * height);
+          for(let i=0; i<width*height; i++) temp[i] = maskData[i*4];
+          maskData = temp;
+       }
+    } else if (results.categoryMask instanceof Uint8Array) {
+        maskData = results.categoryMask;
+    } else {
+        // Attempt generic extraction (ImageData-like)
+         const d = results.categoryMask.data || results.categoryMask;
+         if (d.length === width * height * 4) {
+             const temp = new Uint8Array(width * height);
+             for(let i=0; i<width*height; i++) temp[i] = d[i*4];
+             maskData = temp;
+         } else {
+             maskData = d;
+         }
+    }
+
+    // Generate preview for each class
+    const classResults = await Promise.all(classes.map(async (cls) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      
+      // Draw original image
+      ctx.drawImage(imageElement, 0, 0, width, height);
+      
+      // Overlay mask
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const data = imageData.data;
+      let pixelCount = 0;
+
+      for (let i = 0; i < maskData.length; i++) {
+        if (maskData[i] === cls.id) {
+          pixelCount++;
+          const idx = i * 4;
+          // Blend color: 50% original, 50% class color
+          data[idx] = (data[idx] + cls.color[0]) / 2;
+          data[idx + 1] = (data[idx + 1] + cls.color[1]) / 2;
+          data[idx + 2] = (data[idx + 2] + cls.color[2]) / 2;
+          // Alpha remains 255
+        } else {
+             // Optional: Dim other pixels slightly to pop the class? 
+             // For now, leave as is or dim slightly
+             // const idx = i * 4;
+             // data[idx] *= 0.8;
+             // data[idx+1] *= 0.8;
+             // data[idx+2] *= 0.8;
+        }
+      }
+      
+      ctx.putImageData(imageData, 0, 0);
+      
+      return {
+        ...cls,
+        pixelCount,
+        preview: canvas.toDataURL('image/png')
+      };
+    }));
+
+    return classResults;
+
+  } catch (err) {
+    console.error('[ColorDetector] Multiclass segmentation failed:', err);
+    return null;
+  }
+};
+
 export {
   identifyPlayerByColor,
   identifyPlayerBySegmentation,
   identifyPlayerByArmSegmentation,
-  normalizeColorToRGB
+  normalizeColorToRGB,
+  getMulticlassSegmentation,
+  loadImageElement // Export needed for modal if it calls it directly, though here we wrap it
 };
 
