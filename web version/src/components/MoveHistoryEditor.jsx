@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getApiBaseUrl } from '../config/api.config';
 import './MoveHistoryEditor.css';
-import { identifyPlayerByColor } from '../utils/colorDetector';
+import { identifyPlayerByColor, identifyPlayerBySegmentation } from '../utils/colorDetector';
+import ColorPreviewModal from './ColorPreviewModal';
 
 const API_BASE_URL = getApiBaseUrl();
 const ADMIN_PASSWORD_KEY = 'adminPassword';
@@ -11,6 +12,21 @@ const formatNumber = (value, decimals = 2) => {
     return '—';
   }
   return value.toFixed(decimals);
+};
+
+// Convert hex color to rgba for outline opacity
+const hexToRgba = (hex, alpha) => {
+  if (!hex || !hex.startsWith('#')) return `rgba(0, 0, 0, ${alpha})`;
+  let cleanHex = hex.slice(1);
+  // Handle 3-character hex codes
+  if (cleanHex.length === 3) {
+    cleanHex = cleanHex.split('').map(c => c + c).join('');
+  }
+  if (cleanHex.length !== 6) return `rgba(0, 0, 0, ${alpha})`;
+  const r = parseInt(cleanHex.slice(0, 2), 16);
+  const g = parseInt(cleanHex.slice(2, 4), 16);
+  const b = parseInt(cleanHex.slice(4, 6), 16);
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 };
 
 function MoveHistoryEditor({ sessionGameId }) {
@@ -34,6 +50,32 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [colorProgress, setColorProgress] = useState({ current: 0, total: 0 });
   const [colorAnchor, setColorAnchor] = useState('bottom');
   const [colorPreview, setColorPreview] = useState(null);
+
+  const detectPlayerByColor = useCallback(
+    async (frameData) => {
+      if (!frameData) {
+        return { suggestion: 'None', stats: null };
+      }
+      try {
+        // Use Selfie Segmentation - finds topmost white pixel (hand tip) and checks color there
+        const segmentationResult = await identifyPlayerBySegmentation(frameData, colorA, colorB, {
+          anchor: colorAnchor,
+          modelSelection: 1, // Landscape/High accuracy
+          stride: 2, // Skip pixels for performance
+          maskThreshold: 100, // Person detection threshold
+          wristOffset: 20, // If tip is skin, check 20px lower for wrist band
+          colorThreshold: 95
+        });
+        if (segmentationResult) {
+          return segmentationResult;
+        }
+      } catch (err) {
+        console.warn('[MoveHistoryEditor] Selfie segmentation detector failed, falling back to color bands:', err);
+      }
+      return identifyPlayerByColor(frameData, colorA, colorB, { anchor: colorAnchor });
+    },
+    [colorA, colorB, colorAnchor]
+  );
 
   // Load password from localStorage
   useEffect(() => {
@@ -378,12 +420,8 @@ function MoveHistoryEditor({ sessionGameId }) {
       for (const move of movesToProcess) {
         setColorProgress({ current: processedCount + 1, total: movesToProcess.length });
         try {
-          const result = await identifyPlayerByColor(
-            move.camera_frame,
-            colorA,
-            colorB,
-            { anchor: colorAnchor }
-          );
+          const result = await detectPlayerByColor(move.camera_frame);
+          if (!result) continue;
 
           setColorSuggestions((prev) => ({
             ...prev,
@@ -443,12 +481,8 @@ function MoveHistoryEditor({ sessionGameId }) {
       for (const move of movesToProcess) {
         setColorProgress({ current: processedCount + 1, total: movesToProcess.length });
         try {
-          const result = await identifyPlayerByColor(
-            move.camera_frame,
-            colorA,
-            colorB,
-            { anchor: colorAnchor }
-          );
+          const result = await detectPlayerByColor(move.camera_frame);
+          if (!result) continue;
 
           setColorSuggestions((prev) => ({
             ...prev,
@@ -510,12 +544,11 @@ function MoveHistoryEditor({ sessionGameId }) {
 
     try {
       console.log(`[MoveHistoryEditor] Color-identifying single move: ${moveId}`);
-      const result = await identifyPlayerByColor(
-        move.camera_frame,
-        colorA,
-        colorB,
-        { anchor: colorAnchor }
-      );
+      const result = await detectPlayerByColor(move.camera_frame);
+      if (!result) {
+        alert('Color-based identification failed for this move.');
+        return;
+      }
 
       setColorSuggestions((prev) => ({
         ...prev,
@@ -547,6 +580,7 @@ function MoveHistoryEditor({ sessionGameId }) {
         moveId,
         original: move.camera_frame,
         preview: result.preview,
+        maskPreview: result.maskPreview,
         stats: result.stats,
         suggestion: result.suggestion,
         colorA,
@@ -643,20 +677,6 @@ function MoveHistoryEditor({ sessionGameId }) {
   const practiceCount = session.moves?.filter(m => m.phase === 'practice').length || 0;
   const experimentCount = session.moves?.filter(m => m.phase === 'experiment').length || 0;
 
-  const colorPreviewStats = colorPreview?.stats;
-  const colorPreviewTotalPixels =
-    colorPreviewStats?.width && colorPreviewStats?.height
-      ? colorPreviewStats.width * colorPreviewStats.height
-      : 0;
-  const formatCoverage = (count) => {
-    if (!colorPreviewTotalPixels || !count) return '0%';
-    return `${((count / colorPreviewTotalPixels) * 100).toFixed(1)}%`;
-  };
-  const colorPreviewAnchorLabel = colorPreview
-    ? colorPreview.anchor === 'top'
-      ? 'Top edge (closest to ceiling camera)'
-      : 'Bottom edge (closest to screen base)'
-    : '';
 
   return (
     <div className="move-editor-container">
@@ -805,43 +825,67 @@ function MoveHistoryEditor({ sessionGameId }) {
                 </div>
 
                 {/* AI Suggestion Banner */}
-                {aiSuggestions[move._id] && (
-                  <div className="ai-suggestion-banner">
-                    <div className="ai-suggestion-content">
-                      <span className="ai-icon">🤖</span>
-                      <span className="ai-text">AI suggests: <strong>{aiSuggestions[move._id].player}</strong></span>
-                    </div>
-                    <button 
-                      className="ai-confirm-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleConfirmAiSuggestion(move._id);
+                {aiSuggestions[move._id] && (() => {
+                  const suggestedPlayer = aiSuggestions[move._id].player;
+                  const isPlayerA = suggestedPlayer === 'A' || suggestedPlayer === 'Player A';
+                  const bannerColor = isPlayerA ? colorA : colorB;
+                  return (
+                    <div 
+                      className="ai-suggestion-banner"
+                      style={{
+                        borderColor: bannerColor,
+                        outline: `2px solid ${hexToRgba(bannerColor, 0.25)}`,
+                        outlineOffset: '2px'
                       }}
                     >
-                      ✓ Confirm
-                    </button>
-                  </div>
-                )}
+                      <div className="ai-suggestion-content">
+                        <span className="ai-icon">🤖</span>
+                        <span className="ai-text">AI suggests: <strong>{aiSuggestions[move._id].player}</strong></span>
+                      </div>
+                      <button 
+                        className="ai-confirm-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleConfirmAiSuggestion(move._id);
+                        }}
+                      >
+                        ✓ Confirm
+                      </button>
+                    </div>
+                  );
+                })()}
 
-                {colorSuggestions[move._id] && (
-                  <div className="ai-suggestion-banner color-suggestion-banner">
-                    <div className="ai-suggestion-content">
-                      <span className="ai-icon">🎨</span>
-                      <span className="ai-text">
-                        Color suggests: <strong>{colorSuggestions[move._id].player}</strong>
-                      </span>
-                    </div>
-                    <button
-                      className="ai-confirm-btn"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleConfirmColorSuggestion(move._id);
+                {colorSuggestions[move._id] && (() => {
+                  const suggestedPlayer = colorSuggestions[move._id].player;
+                  const isPlayerA = suggestedPlayer === 'A' || suggestedPlayer === 'Player A';
+                  const bannerColor = isPlayerA ? colorA : colorB;
+                  return (
+                    <div 
+                      className="ai-suggestion-banner color-suggestion-banner"
+                      style={{
+                        borderColor: bannerColor,
+                        outline: `2px solid ${hexToRgba(bannerColor, 0.25)}`,
+                        outlineOffset: '2px'
                       }}
                     >
-                      ✓ Confirm
-                    </button>
-                  </div>
-                )}
+                      <div className="ai-suggestion-content">
+                        <span className="ai-icon">🎨</span>
+                        <span className="ai-text">
+                          Color suggests: <strong>{colorSuggestions[move._id].player}</strong>
+                        </span>
+                      </div>
+                      <button
+                        className="ai-confirm-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleConfirmColorSuggestion(move._id);
+                        }}
+                      >
+                        ✓ Confirm
+                      </button>
+                    </div>
+                  );
+                })()}
 
                 <div 
                   className="move-info-row player-row"
@@ -943,99 +987,10 @@ function MoveHistoryEditor({ sessionGameId }) {
         </div>
       )}
 
-      {colorPreview && (
-        <div className="image-modal" onClick={() => setColorPreview(null)}>
-          <div className="image-modal-content color-preview-modal" onClick={(e) => e.stopPropagation()}>
-            <button className="close-modal" onClick={() => setColorPreview(null)}>✕</button>
-            <div className="color-preview-grid">
-              <div className="color-preview-panel">
-                <h3>Original Frame</h3>
-                <img src={colorPreview.original} alt="Original frame" />
-              </div>
-              <div className="color-preview-panel">
-                <h3>Mask View</h3>
-                {colorPreview.preview ? (
-                  <img src={colorPreview.preview} alt="Mask preview" />
-                ) : (
-                  <p>No mask preview available</p>
-                )}
-              </div>
-            </div>
-            {colorPreview.stats && (
-              <div className="color-preview-stats">
-                <div className="color-preview-meta">
-                  <div>
-                    <strong>Frame:</strong>{' '}
-                    {colorPreview.stats.width} × {colorPreview.stats.height}{' '}
-                    ({colorPreviewTotalPixels.toLocaleString()} px)
-                  </div>
-                  <div>
-                    <strong>Anchor:</strong> {colorPreviewAnchorLabel}
-                  </div>
-                  <div>
-                    <strong>Suggestion:</strong>{' '}
-                    {colorPreview.suggestion === 'A'
-                      ? 'Player A'
-                      : colorPreview.suggestion === 'B'
-                        ? 'Player B'
-                        : 'None'}
-                  </div>
-                </div>
-                <div className="color-preview-calibration">
-                  <div className="calibration-card">
-                    <div className="calibration-header">
-                      <span className="player-label">Player A color</span>
-                      <div className="color-chip" style={{ backgroundColor: colorPreview.colorA }} />
-                    </div>
-                    <code>{colorPreview.colorA || '—'}</code>
-                    {colorPreview.calibrationA && (
-                      <div className="calibration-hsv">
-                        HSV: h={colorPreview.calibrationA.h ?? '—'} / s={colorPreview.calibrationA.s ?? '—'} / v={colorPreview.calibrationA.v ?? '—'}
-                      </div>
-                    )}
-                  </div>
-                  <div className="calibration-card">
-                    <div className="calibration-header">
-                      <span className="player-label">Player B color</span>
-                      <div className="color-chip" style={{ backgroundColor: colorPreview.colorB }} />
-                    </div>
-                    <code>{colorPreview.colorB || '—'}</code>
-                    {colorPreview.calibrationB && (
-                      <div className="calibration-hsv">
-                        HSV: h={colorPreview.calibrationB.h ?? '—'} / s={colorPreview.calibrationB.s ?? '—'} / v={colorPreview.calibrationB.v ?? '—'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="color-preview-breakdown">
-                  <div className="breakdown-card">
-                    <h4>Player A band</h4>
-                    <p>
-                      <strong>Pixels:</strong> {colorPreview.stats.pixelsA || 0}{' '}
-                      ({formatCoverage(colorPreview.stats.pixelsA)})
-                    </p>
-                    <p>
-                      <strong>Vertical span:</strong>{' '}
-                      {colorPreview.stats.minYA ?? '—'} → {colorPreview.stats.maxYA ?? '—'}
-                    </p>
-                  </div>
-                  <div className="breakdown-card">
-                    <h4>Player B band</h4>
-                    <p>
-                      <strong>Pixels:</strong> {colorPreview.stats.pixelsB || 0}{' '}
-                      ({formatCoverage(colorPreview.stats.pixelsB)})
-                    </p>
-                    <p>
-                      <strong>Vertical span:</strong>{' '}
-                      {colorPreview.stats.minYB ?? '—'} → {colorPreview.stats.maxYB ?? '—'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      <ColorPreviewModal
+        colorPreview={colorPreview}
+        onClose={() => setColorPreview(null)}
+      />
     </div>
   );
 }
