@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { getApiBaseUrl } from '../config/api.config';
 import './MoveHistoryEditor.css';
-import { identifyPlayerByColor, identifyPlayerBySegmentation } from '../utils/colorDetector';
+import { identifyPlayerByColor } from '../utils/colorDetector';
 
 const API_BASE_URL = getApiBaseUrl();
 const ADMIN_PASSWORD_KEY = 'adminPassword';
@@ -34,26 +34,6 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [colorProgress, setColorProgress] = useState({ current: 0, total: 0 });
   const [colorAnchor, setColorAnchor] = useState('bottom');
   const [colorPreview, setColorPreview] = useState(null);
-
-  const detectPlayerByColor = useCallback(
-    async (frameData) => {
-      if (!frameData) {
-        return { suggestion: 'None', stats: null };
-      }
-      try {
-        const segmentationResult = await identifyPlayerBySegmentation(frameData, colorA, colorB, {
-          anchor: colorAnchor
-        });
-        if (segmentationResult) {
-          return segmentationResult;
-        }
-      } catch (err) {
-        console.warn('[MoveHistoryEditor] Segmentation detector failed, falling back to color bands:', err);
-      }
-      return identifyPlayerByColor(frameData, colorA, colorB, { anchor: colorAnchor });
-    },
-    [colorA, colorB, colorAnchor]
-  );
 
   // Load password from localStorage
   useEffect(() => {
@@ -398,8 +378,12 @@ function MoveHistoryEditor({ sessionGameId }) {
       for (const move of movesToProcess) {
         setColorProgress({ current: processedCount + 1, total: movesToProcess.length });
         try {
-          const result = await detectPlayerByColor(move.camera_frame);
-          if (!result) continue;
+          const result = await identifyPlayerByColor(
+            move.camera_frame,
+            colorA,
+            colorB,
+            { anchor: colorAnchor }
+          );
 
           setColorSuggestions((prev) => ({
             ...prev,
@@ -459,8 +443,12 @@ function MoveHistoryEditor({ sessionGameId }) {
       for (const move of movesToProcess) {
         setColorProgress({ current: processedCount + 1, total: movesToProcess.length });
         try {
-          const result = await detectPlayerByColor(move.camera_frame);
-          if (!result) continue;
+          const result = await identifyPlayerByColor(
+            move.camera_frame,
+            colorA,
+            colorB,
+            { anchor: colorAnchor }
+          );
 
           setColorSuggestions((prev) => ({
             ...prev,
@@ -522,11 +510,12 @@ function MoveHistoryEditor({ sessionGameId }) {
 
     try {
       console.log(`[MoveHistoryEditor] Color-identifying single move: ${moveId}`);
-      const result = await detectPlayerByColor(move.camera_frame);
-      if (!result) {
-        alert('Color-based identification failed for this move.');
-        return;
-      }
+      const result = await identifyPlayerByColor(
+        move.camera_frame,
+        colorA,
+        colorB,
+        { anchor: colorAnchor }
+      );
 
       setColorSuggestions((prev) => ({
         ...prev,
@@ -558,7 +547,6 @@ function MoveHistoryEditor({ sessionGameId }) {
         moveId,
         original: move.camera_frame,
         preview: result.preview,
-        maskPreview: result.maskPreview,
         stats: result.stats,
         suggestion: result.suggestion,
         colorA,
@@ -664,23 +652,11 @@ function MoveHistoryEditor({ sessionGameId }) {
     if (!colorPreviewTotalPixels || !count) return '0%';
     return `${((count / colorPreviewTotalPixels) * 100).toFixed(1)}%`;
   };
-  const formatCoverageLabel = (count) => {
-    if (!colorPreviewTotalPixels || typeof count !== 'number') return '—';
-    const pct = ((count / colorPreviewTotalPixels) * 100).toFixed(1);
-    return `${count.toLocaleString()} px (${pct}%)`;
-  };
-  const formatDiffValue = (value) => (typeof value === 'number' ? value.toFixed(1) : '—');
-  const colorPreviewAnchorLabel = colorPreview?.anchor
+  const colorPreviewAnchorLabel = colorPreview
     ? colorPreview.anchor === 'top'
       ? 'Top edge (closest to ceiling camera)'
       : 'Bottom edge (closest to screen base)'
-    : '—';
-  const colorPreviewMethodLabel = colorPreviewStats?.mode === 'segmentation'
-    ? 'Segmentation (MediaPipe Selfie)'
-    : 'Color band mask';
-  const colorPreviewPixelLabel = colorPreviewTotalPixels
-    ? colorPreviewTotalPixels.toLocaleString()
-    : '—';
+    : '';
 
   return (
     <div className="move-editor-container">
@@ -979,19 +955,7 @@ function MoveHistoryEditor({ sessionGameId }) {
               <div className="color-preview-panel">
                 <h3>Mask View</h3>
                 {colorPreview.preview ? (
-                  <>
-                    <p className="mask-label">
-                      {colorPreview.stats?.mode === 'segmentation'
-                        ? 'Color Mask + Person Glow (Cyan = MediaPipe Person Coverage)'
-                        : 'Color Overlay'}
-                    </p>
-                    <img src={colorPreview.preview} alt="Mask preview" />
-                  </>
-                ) : colorPreview.maskPreview ? (
-                  <>
-                    <p className="mask-label">MediaPipe Segmentation (White = Person, Black = Background)</p>
-                    <img src={colorPreview.maskPreview} alt="MediaPipe mask" />
-                  </>
+                  <img src={colorPreview.preview} alt="Mask preview" />
                 ) : (
                   <p>No mask preview available</p>
                 )}
@@ -1002,12 +966,8 @@ function MoveHistoryEditor({ sessionGameId }) {
                 <div className="color-preview-meta">
                   <div>
                     <strong>Frame:</strong>{' '}
-                    {colorPreview.stats.width && colorPreview.stats.height
-                      ? `${colorPreview.stats.width} × ${colorPreview.stats.height} (${colorPreviewPixelLabel} px)`
-                      : '—'}
-                  </div>
-                  <div>
-                    <strong>Method:</strong> {colorPreviewMethodLabel}
+                    {colorPreview.stats.width} × {colorPreview.stats.height}{' '}
+                    ({colorPreviewTotalPixels.toLocaleString()} px)
                   </div>
                   <div>
                     <strong>Anchor:</strong> {colorPreviewAnchorLabel}
@@ -1020,26 +980,6 @@ function MoveHistoryEditor({ sessionGameId }) {
                         ? 'Player B'
                         : 'None'}
                   </div>
-                  {colorPreview.stats.detectionPoint && (
-                    <div>
-                      <strong>Detected point:</strong>{' '}
-                      {colorPreview.stats.detectionPoint.label} (
-                      {colorPreview.stats.detectionPoint.x},{' '}
-                      {colorPreview.stats.detectionPoint.y})
-                    </div>
-                  )}
-                  {colorPreview.stats.mode === 'segmentation' &&
-                    typeof colorPreview.stats.personPixels === 'number' && (
-                      <div>
-                        <strong>Person coverage:</strong>{' '}
-                        {formatCoverageLabel(colorPreview.stats.personPixels)}
-                      </div>
-                    )}
-                  {colorPreview.stats.reason && (
-                    <div>
-                      <strong>Note:</strong> {colorPreview.stats.reason}
-                    </div>
-                  )}
                 </div>
                 <div className="color-preview-calibration">
                   <div className="calibration-card">
@@ -1067,85 +1007,30 @@ function MoveHistoryEditor({ sessionGameId }) {
                     )}
                   </div>
                 </div>
-                {colorPreview.stats.mode === 'segmentation' ? (
-                  <div className="segmentation-breakdown">
-                    <div className="segmentation-card">
-                      <h4>Tip point</h4>
-                      <p>
-                        <strong>Coords:</strong>{' '}
-                        {colorPreview.stats.tip
-                          ? `(${colorPreview.stats.tip.x}, ${colorPreview.stats.tip.y})`
-                          : '—'}
-                      </p>
-                      <div className="segmentation-color-row">
-                        <span>Color:</span>
-                        <div
-                          className="color-chip large"
-                          style={{ backgroundColor: colorPreview.stats.tipColor?.hex || '#000' }}
-                        />
-                        <code>{colorPreview.stats.tipColor?.hex || '—'}</code>
-                      </div>
-                      <div className="diff-row">
-                        <span>Δ Player A:</span>
-                        <span>{formatDiffValue(colorPreview.stats.tipDiffs?.diffA)}</span>
-                      </div>
-                      <div className="diff-row">
-                        <span>Δ Player B:</span>
-                        <span>{formatDiffValue(colorPreview.stats.tipDiffs?.diffB)}</span>
-                      </div>
-                    </div>
-                    <div className="segmentation-card">
-                      <h4>Wrist sample</h4>
-                      <p>
-                        <strong>Coords:</strong>{' '}
-                        {colorPreview.stats.wrist
-                          ? `(${colorPreview.stats.wrist.x}, ${colorPreview.stats.wrist.y})`
-                          : '—'}
-                      </p>
-                      <div className="segmentation-color-row">
-                        <span>Color:</span>
-                        <div
-                          className="color-chip large"
-                          style={{ backgroundColor: colorPreview.stats.wristColor?.hex || '#000' }}
-                        />
-                        <code>{colorPreview.stats.wristColor?.hex || '—'}</code>
-                      </div>
-                      <div className="diff-row">
-                        <span>Δ Player A:</span>
-                        <span>{formatDiffValue(colorPreview.stats.wristDiffs?.diffA)}</span>
-                      </div>
-                      <div className="diff-row">
-                        <span>Δ Player B:</span>
-                        <span>{formatDiffValue(colorPreview.stats.wristDiffs?.diffB)}</span>
-                      </div>
-                    </div>
+                <div className="color-preview-breakdown">
+                  <div className="breakdown-card">
+                    <h4>Player A band</h4>
+                    <p>
+                      <strong>Pixels:</strong> {colorPreview.stats.pixelsA || 0}{' '}
+                      ({formatCoverage(colorPreview.stats.pixelsA)})
+                    </p>
+                    <p>
+                      <strong>Vertical span:</strong>{' '}
+                      {colorPreview.stats.minYA ?? '—'} → {colorPreview.stats.maxYA ?? '—'}
+                    </p>
                   </div>
-                ) : (
-                  <div className="color-preview-breakdown">
-                    <div className="breakdown-card">
-                      <h4>Player A band</h4>
-                      <p>
-                        <strong>Pixels:</strong> {colorPreview.stats.pixelsA || 0}{' '}
-                        ({formatCoverage(colorPreview.stats.pixelsA)})
-                      </p>
-                      <p>
-                        <strong>Vertical span:</strong>{' '}
-                        {colorPreview.stats.minYA ?? '—'} → {colorPreview.stats.maxYA ?? '—'}
-                      </p>
-                    </div>
-                    <div className="breakdown-card">
-                      <h4>Player B band</h4>
-                      <p>
-                        <strong>Pixels:</strong> {colorPreview.stats.pixelsB || 0}{' '}
-                        ({formatCoverage(colorPreview.stats.pixelsB)})
-                      </p>
-                      <p>
-                        <strong>Vertical span:</strong>{' '}
-                        {colorPreview.stats.minYB ?? '—'} → {colorPreview.stats.maxYB ?? '—'}
-                      </p>
-                    </div>
+                  <div className="breakdown-card">
+                    <h4>Player B band</h4>
+                    <p>
+                      <strong>Pixels:</strong> {colorPreview.stats.pixelsB || 0}{' '}
+                      ({formatCoverage(colorPreview.stats.pixelsB)})
+                    </p>
+                    <p>
+                      <strong>Vertical span:</strong>{' '}
+                      {colorPreview.stats.minYB ?? '—'} → {colorPreview.stats.maxYB ?? '—'}
+                    </p>
                   </div>
-                )}
+                </div>
               </div>
             )}
           </div>

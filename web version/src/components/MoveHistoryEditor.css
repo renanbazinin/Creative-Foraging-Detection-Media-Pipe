@@ -454,13 +454,6 @@
   background: #000;
 }
 
-.mask-label {
-  margin: 0 0 8px 0;
-  font-size: 12px;
-  color: #aaa;
-  font-style: italic;
-}
-
 .color-preview-stats {
   display: flex;
   flex-direction: column;
@@ -513,11 +506,6 @@
   border: 1px solid #444;
 }
 
-.color-chip.large {
-  width: 40px;
-  height: 20px;
-}
-
 .calibration-hsv {
   font-size: 12px;
   color: #bbb;
@@ -539,45 +527,6 @@
 .breakdown-card h4 {
   margin: 0 0 8px 0;
   color: #4CAF50;
-}
-
-.segmentation-breakdown {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
-}
-
-.segmentation-card {
-  background: #0f0f0f;
-  border: 1px solid #2a2a2a;
-  border-radius: 8px;
-  padding: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.segmentation-card h4 {
-  margin: 0;
-  color: #03A9F4;
-}
-
-.segmentation-color-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.segmentation-color-row code {
-  font-size: 12px;
-  color: #ccc;
-}
-
-.diff-row {
-  display: flex;
-  justify-content: space-between;
-  font-size: 13px;
-  color: #ddd;
 }
 
 /* AI Controls */
