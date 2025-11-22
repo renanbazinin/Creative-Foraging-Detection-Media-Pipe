@@ -5,16 +5,17 @@ const asyncHandler = require('../utils/asyncHandler');
 /**
  * Identify player for a single move using AI
  * POST /api/ai/identify-move
- * Body: { sessionGameId, moveId, colorA?, colorB? }
+ * Body: { sessionGameId, moveId, colorA?, colorB?, cameraPosition? }
  * Note: colorA and colorB are optional - will use session colors if not provided
+ * Note: cameraPosition is optional - 'top' or 'bottom' to specify camera angle
  */
 exports.identifyMove = asyncHandler(async (req, res) => {
-  const { sessionGameId, moveId } = req.body;
+  const { sessionGameId, moveId, cameraPosition } = req.body;
   let { colorA, colorB } = req.body;
 
   if (!sessionGameId || !moveId) {
-    return res.status(400).json({ 
-      message: 'sessionGameId and moveId are required' 
+    return res.status(400).json({
+      message: 'sessionGameId and moveId are required'
     });
   }
 
@@ -39,8 +40,8 @@ exports.identifyMove = asyncHandler(async (req, res) => {
       console.log(`[AI Controller] Using session colors (metadata): A=${colorA}, B=${colorB}`);
     }
     else {
-      return res.status(400).json({ 
-        message: 'Colors not found in session and not provided in request. Please provide colorA and colorB.' 
+      return res.status(400).json({
+        message: 'Colors not found in session and not provided in request. Please provide colorA and colorB.'
       });
     }
   }
@@ -52,7 +53,7 @@ exports.identifyMove = asyncHandler(async (req, res) => {
 
   // Check if move has a camera frame
   if (!move.camera_frame) {
-    return res.status(400).json({ 
+    return res.status(400).json({
       message: 'Move does not have a camera frame',
       suggestion: 'None'
     });
@@ -60,8 +61,8 @@ exports.identifyMove = asyncHandler(async (req, res) => {
 
   try {
     // Identify player using AI
-    const result = await aiService.identifyPlayer(move.camera_frame, colorA, colorB);
-    
+    const result = await aiService.identifyPlayer(move.camera_frame, colorA, colorB, cameraPosition);
+
     res.json({
       moveId,
       suggestion: result.currentPlayer,
@@ -71,7 +72,7 @@ exports.identifyMove = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('[AI Controller] Error identifying move:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: 'AI identification failed',
       error: error.message,
       suggestion: 'None'
@@ -82,16 +83,17 @@ exports.identifyMove = asyncHandler(async (req, res) => {
 /**
  * Identify players for multiple moves using AI
  * POST /api/ai/identify-moves-batch
- * Body: { sessionGameId, moveIds?, colorA?, colorB?, onlyUnknown? }
+ * Body: { sessionGameId, moveIds?, colorA?, colorB?, onlyUnknown?, cameraPosition? }
  * Note: colorA and colorB are optional - will use session colors if not provided
+ * Note: cameraPosition is optional - 'top' or 'bottom' to specify camera angle
  */
 exports.identifyMovesBatch = asyncHandler(async (req, res) => {
-  const { sessionGameId, moveIds, onlyUnknown = false } = req.body;
+  const { sessionGameId, moveIds, onlyUnknown = false, cameraPosition } = req.body;
   let { colorA, colorB } = req.body;
 
   if (!sessionGameId) {
-    return res.status(400).json({ 
-      message: 'sessionGameId is required' 
+    return res.status(400).json({
+      message: 'sessionGameId is required'
     });
   }
 
@@ -116,8 +118,8 @@ exports.identifyMovesBatch = asyncHandler(async (req, res) => {
       console.log(`[AI Controller] Using session colors for batch (metadata): A=${colorA}, B=${colorB}`);
     }
     else {
-      return res.status(400).json({ 
-        message: 'Colors not found in session and not provided in request. Please provide colorA and colorB or save colors in session.' 
+      return res.status(400).json({
+        message: 'Colors not found in session and not provided in request. Please provide colorA and colorB or save colors in session.'
       });
     }
   }
@@ -132,7 +134,7 @@ exports.identifyMovesBatch = asyncHandler(async (req, res) => {
 
   // If onlyUnknown is true, filter to Unknown/None players
   if (onlyUnknown) {
-    movesToProcess = movesToProcess.filter(m => 
+    movesToProcess = movesToProcess.filter(m =>
       !m.player || m.player === 'Unknown' || m.player === 'None'
     );
   }
@@ -141,7 +143,7 @@ exports.identifyMovesBatch = asyncHandler(async (req, res) => {
   movesToProcess = movesToProcess.filter(m => m.camera_frame);
 
   if (movesToProcess.length === 0) {
-    return res.json({ 
+    return res.json({
       results: [],
       processed: 0,
       message: 'No moves to process'
@@ -158,8 +160,8 @@ exports.identifyMovesBatch = asyncHandler(async (req, res) => {
 
   try {
     // Identify players in batch
-    const results = await aiService.identifyPlayersBatch(movesData, colorA, colorB);
-    
+    const results = await aiService.identifyPlayersBatch(movesData, colorA, colorB, cameraPosition);
+
     res.json({
       results,
       processed: results.length,
@@ -168,7 +170,7 @@ exports.identifyMovesBatch = asyncHandler(async (req, res) => {
     });
   } catch (error) {
     console.error('[AI Controller] Error in batch identification:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       message: 'Batch AI identification failed',
       error: error.message
     });
@@ -187,7 +189,7 @@ exports.getUnidentifiedMoves = asyncHandler(async (req, res) => {
     return res.status(404).json({ message: 'Session not found' });
   }
 
-  const unidentifiedMoves = session.moves.filter(m => 
+  const unidentifiedMoves = session.moves.filter(m =>
     (!m.player || m.player === 'Unknown' || m.player === 'None') && m.camera_frame
   );
 

@@ -56,11 +56,11 @@ export const checkServerHealth = async () => {
         'Content-Type': 'application/json'
       }
     });
-    
+
     if (!response.ok) {
       throw new Error(`Health check failed: ${response.status}`);
     }
-    
+
     const data = await response.json();
     return {
       status: data.status || 'unknown',
