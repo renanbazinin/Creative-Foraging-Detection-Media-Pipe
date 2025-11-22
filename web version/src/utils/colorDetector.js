@@ -419,7 +419,7 @@ const countMassiveBlobs = (points, width, height, stride, minBlobRatio = 0.1) =>
   // 1. Create a temporary grid to track visited pixels
   // 0 = empty, 1 = has pixel, 2 = visited
   const grid = new Int32Array(width * height);
-  
+
   // Populate grid with our matching points
   for (const p of points) {
     const idx = p.y * width + p.x;
@@ -439,7 +439,7 @@ const countMassiveBlobs = (points, width, height, stride, minBlobRatio = 0.1) =>
   // 2. Find all blobs using Flood Fill (BFS)
   for (const p of points) {
     const idx = p.y * width + p.x;
-    
+
     // If this pixel is not marked as '1' (it's either 0 or already visited 2), skip
     if (idx < 0 || idx >= grid.length || grid[idx] !== 1) continue;
 
@@ -447,7 +447,7 @@ const countMassiveBlobs = (points, width, height, stride, minBlobRatio = 0.1) =>
     let currentBlobSize = 0;
     const queue = [{ x: p.x, y: p.y }];
     grid[idx] = 2; // Mark as visited immediately
-    
+
     const currentBlobPixels = [];
 
     let head = 0;
@@ -483,7 +483,7 @@ const countMassiveBlobs = (points, width, height, stride, minBlobRatio = 0.1) =>
   }
 
   // 3. Find the largest blob
-  const largestBlob = allBlobs.reduce((max, blob) => 
+  const largestBlob = allBlobs.reduce((max, blob) =>
     blob.size > max.size ? blob : max
   );
   const largestBlobSize = largestBlob.size;
@@ -604,7 +604,7 @@ const identifyPlayerBySegmentation = async (
     const colorThreshold = options.colorThreshold ?? 95;
     const anchor = options.anchor || 'top'; // 'top' or 'bottom'
     const sqThresh = colorThreshold * colorThreshold;
-    
+
     // NEW: Scan Depth - How far from the "tip" do we look? 
     // 0.20 means we only check the first 20% of the arm (the wrist/hand).
     const scanDepthRatio = options.scanDepth ?? 1.0; // Default to 100% (full scan)
@@ -643,7 +643,7 @@ const identifyPlayerBySegmentation = async (
     // Check if manual bounds are provided
     let startY, endY;
     let pixelDepth;
-    
+
     if (options.manualBounds && anchor === 'manually') {
       // Use manual bounds directly
       startY = options.manualBounds.topY;
@@ -656,21 +656,21 @@ const identifyPlayerBySegmentation = async (
     } else {
       // Use automatic calculation
       if (!foundPerson) {
-        return { 
-          suggestion: 'None', 
-          stats: { 
+        return {
+          suggestion: 'None',
+          stats: {
             mode: 'segmentation',
-            reason: 'no_person' 
+            reason: 'no_person'
           },
           preview: null,
           maskPreview: null
         };
       }
-      
+
       pixelDepth = scanDepthRatio ? Math.floor(height * scanDepthRatio) : height;
-      
+
       if (anchor === 'top') {
-        startY = tipY; 
+        startY = tipY;
         endY = Math.min(height, tipY + pixelDepth);
       } else {
         startY = Math.max(0, tipY - pixelDepth);
@@ -708,7 +708,7 @@ const identifyPlayerBySegmentation = async (
     // 6. Apply Blob Filtering (removes noise - small scattered pixels)
     // minBlobRatio: Keep only blobs that are at least X% of the largest blob (default 10%)
     const minBlobRatio = options.minBlobRatio ?? 0.1; // 10% of largest blob
-    
+
     const blobResultA = countMassiveBlobs(candidatesA, width, height, stride, minBlobRatio);
     const blobResultB = countMassiveBlobs(candidatesB, width, height, stride, minBlobRatio);
 
@@ -719,17 +719,17 @@ const identifyPlayerBySegmentation = async (
 
     // 7. Decision Logic
     // We need a minimum number of pixels to be confident (ignoring noise)
-    const MIN_PIXELS = 50; 
+    const MIN_PIXELS = 50;
     let suggestion = 'None';
     let bestArm = null;
 
     if (pixelsA > MIN_PIXELS && pixelsA > pixelsB) {
       suggestion = 'A';
-      bestArm = { 
-        color: 'A', 
-        pixelCount: pixelsA, 
-        minY: startY, 
-        maxY: endY, 
+      bestArm = {
+        color: 'A',
+        pixelCount: pixelsA,
+        minY: startY,
+        maxY: endY,
         anchorY: tipY,
         rawPixels: candidatesA.length,
         largestBlobSize: blobResultA.largestBlobSize,
@@ -737,11 +737,11 @@ const identifyPlayerBySegmentation = async (
       };
     } else if (pixelsB > MIN_PIXELS && pixelsB > pixelsA) {
       suggestion = 'B';
-      bestArm = { 
-        color: 'B', 
-        pixelCount: pixelsB, 
-        minY: startY, 
-        maxY: endY, 
+      bestArm = {
+        color: 'B',
+        pixelCount: pixelsB,
+        minY: startY,
+        maxY: endY,
         anchorY: tipY,
         rawPixels: candidatesB.length,
         largestBlobSize: blobResultB.largestBlobSize,
@@ -757,7 +757,7 @@ const identifyPlayerBySegmentation = async (
       previewCanvas.width = width;
       previewCanvas.height = height;
       const ctx = previewCanvas.getContext('2d');
-      
+
       // Draw dimmed original
       ctx.drawImage(imageElement, 0, 0, width, height);
       ctx.fillStyle = 'rgba(0,0,0,0.6)';
@@ -767,23 +767,23 @@ const identifyPlayerBySegmentation = async (
       ctx.globalCompositeOperation = 'destination-out';
       ctx.fillStyle = 'rgba(0,0,0,1)';
       ctx.fillRect(0, startY, width, (endY - startY));
-      
+
       // Draw the original image back into the cleared scan zone
       ctx.globalCompositeOperation = 'destination-over';
       ctx.drawImage(imageElement, 0, 0, width, height);
 
       // Overlay MediaPipe segmentation mask (show which pixels were counted as "person")
       ctx.globalCompositeOperation = 'source-over';
-      
+
       // Draw person mask outline in cyan (only in scan zone for clarity)
       const overlayImageData = ctx.createImageData(width, height);
       const overlayPixels = overlayImageData.data;
-      
+
       for (let y = startY; y < endY; y += 1) {
         for (let x = 0; x < width; x += 1) {
           const idx = (y * width + x) * 4;
           const isPerson = maskData[idx] >= maskThreshold;
-          
+
           if (isPerson) {
             // Cyan overlay for person pixels in scan zone (more visible)
             overlayPixels[idx] = 0;       // R
@@ -798,7 +798,7 @@ const identifyPlayerBySegmentation = async (
       // Highlight ONLY filtered blob pixels (noise removed - only large connected blobs)
       const colorOverlayImageData = ctx.createImageData(width, height);
       const colorOverlayPixels = colorOverlayImageData.data;
-      
+
       // Mark filtered color A pixels in bright red (only large blobs, noise filtered out)
       for (const pixel of armPixelsA) {
         const idx = pixel.idx;
@@ -809,7 +809,7 @@ const identifyPlayerBySegmentation = async (
           colorOverlayPixels[idx + 3] = 180; // A (70% opacity - very visible)
         }
       }
-      
+
       // Mark filtered color B pixels in bright blue (only large blobs, noise filtered out)
       for (const pixel of armPixelsB) {
         const idx = pixel.idx;
@@ -820,28 +820,28 @@ const identifyPlayerBySegmentation = async (
           colorOverlayPixels[idx + 3] = 180; // A (70% opacity - very visible)
         }
       }
-      
+
       ctx.putImageData(colorOverlayImageData, 0, 0);
 
       // Draw Scan Area Boundary Lines (Top and Bottom of scan zone)
       ctx.globalCompositeOperation = 'source-over';
-      
+
       // Top boundary line (start of scan area)
       ctx.strokeStyle = '#00FF00'; // Green = Top boundary
       ctx.lineWidth = 3;
       ctx.setLineDash([]);
-      ctx.beginPath(); 
-      ctx.moveTo(0, startY); 
-      ctx.lineTo(width, startY); 
+      ctx.beginPath();
+      ctx.moveTo(0, startY);
+      ctx.lineTo(width, startY);
       ctx.stroke();
 
       // Bottom boundary line (end of scan area)
       ctx.strokeStyle = '#FFFF00'; // Yellow = Bottom boundary
       ctx.lineWidth = 3;
       ctx.setLineDash([5, 5]);
-      ctx.beginPath(); 
-      ctx.moveTo(0, endY); 
-      ctx.lineTo(width, endY); 
+      ctx.beginPath();
+      ctx.moveTo(0, endY);
+      ctx.lineTo(width, endY);
       ctx.stroke();
 
       // Optional: Draw tip line in a different color/style if it's different from startY
@@ -849,9 +849,9 @@ const identifyPlayerBySegmentation = async (
         ctx.strokeStyle = '#FF00FF'; // Magenta = Tip (where person was first detected)
         ctx.lineWidth = 2;
         ctx.setLineDash([2, 2]);
-        ctx.beginPath(); 
-        ctx.moveTo(0, tipY); 
-        ctx.lineTo(width, tipY); 
+        ctx.beginPath();
+        ctx.moveTo(0, tipY);
+        ctx.lineTo(width, tipY);
         ctx.stroke();
       }
 
@@ -877,8 +877,8 @@ const identifyPlayerBySegmentation = async (
 
       maskPreviewCtx.putImageData(maskPreviewImageData, 0, 0);
       maskPreview = maskPreviewCanvas.toDataURL('image/png');
-    } catch (e) { 
-      console.warn('[ColorDetector] Failed generating preview', e); 
+    } catch (e) {
+      console.warn('[ColorDetector] Failed generating preview', e);
     }
 
     const stats = {
@@ -1034,6 +1034,7 @@ const identifyPlayersByCloth = async (frames = [], options = {}) => {
   const maxFrames = options.maxFrames || frames.length;
   const stride = options.stride || 2;
   const minClothPixels = options.minClothPixels || 80;
+  const manualBounds = options.manualBounds || null; // { topY, bottomY }
 
   const framesToProcess = frames.slice(0, maxFrames);
   const results = [];
@@ -1076,6 +1077,11 @@ const identifyPlayersByCloth = async (frames = [], options = {}) => {
       let pixelCount = 0;
 
       for (let y = 0; y < height; y += stride) {
+        // Skip pixels outside manual bounds if provided
+        if (manualBounds && (y < manualBounds.topY || y > manualBounds.bottomY)) {
+          continue;
+        }
+
         const maskY = Math.min(maskHeight - 1, Math.floor(y / scaleY));
         for (let x = 0; x < width; x += stride) {
           const maskX = Math.min(maskWidth - 1, Math.floor(x / scaleX));
@@ -1319,7 +1325,7 @@ const identifyPlayerByArmSegmentation = async (
     let maskData;
     let maskWidth = width;
     let maskHeight = height;
-    
+
     try {
       // MediaPipe returns categoryMask as an object with a canvas property (OffscreenCanvas)
       // We need to read ImageData from that canvas
@@ -1366,13 +1372,13 @@ const identifyPlayerByArmSegmentation = async (
         if (results.categoryMask.width) maskWidth = results.categoryMask.width;
         if (results.categoryMask.height) maskHeight = results.categoryMask.height;
         console.log('[ColorDetector] Using data property, dimensions:', maskWidth, 'x', maskHeight, 'data length:', maskData.length);
-      } else if (results.categoryMask instanceof Uint8ClampedArray || 
-                 results.categoryMask instanceof Uint8Array) {
+      } else if (results.categoryMask instanceof Uint8ClampedArray ||
+        results.categoryMask instanceof Uint8Array) {
         // Direct array
         maskData = results.categoryMask;
         console.log('[ColorDetector] Using direct array, length:', maskData.length);
-      } else if (results.categoryMask instanceof HTMLCanvasElement || 
-                 results.categoryMask instanceof OffscreenCanvas) {
+      } else if (results.categoryMask instanceof HTMLCanvasElement ||
+        results.categoryMask instanceof OffscreenCanvas) {
         // Direct canvas
         const maskCtx = results.categoryMask.getContext('2d');
         const imageData = maskCtx.getImageData(0, 0, results.categoryMask.width, results.categoryMask.height);
@@ -1383,7 +1389,7 @@ const identifyPlayerByArmSegmentation = async (
       } else {
         // Try to create ImageData from the mask
         // MediaPipe might return it as a canvas or need conversion
-        console.warn('[ColorDetector] Unexpected categoryMask type:', typeof results.categoryMask, 
+        console.warn('[ColorDetector] Unexpected categoryMask type:', typeof results.categoryMask,
           'constructor:', results.categoryMask?.constructor?.name,
           'has canvas:', !!results.categoryMask?.canvas,
           'value:', results.categoryMask);
@@ -1425,7 +1431,7 @@ const identifyPlayerByArmSegmentation = async (
     const maskPixelCount = maskWidth * maskHeight;
     const isRGBA = maskData.length >= maskPixelCount * 4;
     const bytesPerPixel = isRGBA ? 4 : 1;
-    
+
     // Scale factors if mask dimensions differ from image dimensions
     const scaleX = width / maskWidth;
     const scaleY = height / maskHeight;
@@ -1440,7 +1446,7 @@ const identifyPlayerByArmSegmentation = async (
         const maskX = Math.floor(x / scaleX);
         const maskY = Math.floor(y / scaleY);
         const maskIdx = (maskY * maskWidth + maskX) * bytesPerPixel;
-        
+
         if (maskIdx >= 0 && maskIdx < maskData.length) {
           // Category is in the R channel (index 0) for RGBA, or directly for single channel
           const category = maskData[maskIdx];
@@ -1542,17 +1548,17 @@ const identifyPlayerByArmSegmentation = async (
       previewCanvas.width = width;
       previewCanvas.height = height;
       const previewCtx = previewCanvas.getContext('2d');
-      
+
       // Draw original image
       previewCtx.drawImage(imageElement, 0, 0, width, height);
-      
+
       // Apply color mask overlay only on arm regions
       const imageData = previewCtx.getImageData(0, 0, width, height);
       const pixels = imageData.data;
-      
+
       const tintA = { r: 255, g: 82, b: 97 };
       const tintB = { r: 80, g: 170, b: 255 };
-      
+
       for (const [category, pixelSet] of armPixels.entries()) {
         for (const pixelIdx of pixelSet) {
           const y = Math.floor(pixelIdx / width);
@@ -1579,7 +1585,7 @@ const identifyPlayerByArmSegmentation = async (
           }
         }
       }
-      
+
       previewCtx.putImageData(imageData, 0, 0);
       preview = previewCanvas.toDataURL('image/png');
 
@@ -1598,13 +1604,13 @@ const identifyPlayerByArmSegmentation = async (
           const maskX = Math.floor(x / scaleX);
           const maskY = Math.floor(y / scaleY);
           const maskIdx = (maskY * maskWidth + maskX) * bytesPerPixel;
-          
+
           let isArm = false;
           if (maskIdx >= 0 && maskIdx < maskData.length) {
             const category = maskData[maskIdx];
             isArm = ARM_CATEGORIES.includes(category);
           }
-          
+
           const value = isArm ? 255 : 0;
           maskPixels[imgIdx] = value;
           maskPixels[imgIdx + 1] = value;
@@ -1684,26 +1690,26 @@ const getMulticlassSegmentation = async (imageSource) => {
       maskData = results.categoryMask.getAsUint8Array();
     } else if (results.categoryMask.canvas) {
       // Fallback if getAsUint8Array is missing (e.g. older version or different mode)
-       const ctx = results.categoryMask.canvas.getContext('2d');
-       maskData = ctx.getImageData(0,0, width, height).data;
-       // If data is RGBA, we need to extract one channel or assume grayscale
-       if (maskData.length === width * height * 4) {
-          const temp = new Uint8Array(width * height);
-          for(let i=0; i<width*height; i++) temp[i] = maskData[i*4];
-          maskData = temp;
-       }
+      const ctx = results.categoryMask.canvas.getContext('2d');
+      maskData = ctx.getImageData(0, 0, width, height).data;
+      // If data is RGBA, we need to extract one channel or assume grayscale
+      if (maskData.length === width * height * 4) {
+        const temp = new Uint8Array(width * height);
+        for (let i = 0; i < width * height; i++) temp[i] = maskData[i * 4];
+        maskData = temp;
+      }
     } else if (results.categoryMask instanceof Uint8Array) {
-        maskData = results.categoryMask;
+      maskData = results.categoryMask;
     } else {
-        // Attempt generic extraction (ImageData-like)
-         const d = results.categoryMask.data || results.categoryMask;
-         if (d.length === width * height * 4) {
-             const temp = new Uint8Array(width * height);
-             for(let i=0; i<width*height; i++) temp[i] = d[i*4];
-             maskData = temp;
-         } else {
-             maskData = d;
-         }
+      // Attempt generic extraction (ImageData-like)
+      const d = results.categoryMask.data || results.categoryMask;
+      if (d.length === width * height * 4) {
+        const temp = new Uint8Array(width * height);
+        for (let i = 0; i < width * height; i++) temp[i] = d[i * 4];
+        maskData = temp;
+      } else {
+        maskData = d;
+      }
     }
 
     // Generate preview for each class
@@ -1712,10 +1718,10 @@ const getMulticlassSegmentation = async (imageSource) => {
       canvas.width = width;
       canvas.height = height;
       const ctx = canvas.getContext('2d');
-      
+
       // Draw original image
       ctx.drawImage(imageElement, 0, 0, width, height);
-      
+
       // Overlay mask
       const imageData = ctx.getImageData(0, 0, width, height);
       const data = imageData.data;
@@ -1730,7 +1736,7 @@ const getMulticlassSegmentation = async (imageSource) => {
             // Special handling for Background (Class 0) to make it darker/clearer
             // Darken the background pixels significantly (keep 25% brightness) so the "mask" effect is obvious
             // Class color is [0,0,0] so adding it does nothing
-            data[idx] = data[idx] * 0.25; 
+            data[idx] = data[idx] * 0.25;
             data[idx + 1] = data[idx + 1] * 0.25;
             data[idx + 2] = data[idx + 2] * 0.25;
           } else {
@@ -1741,17 +1747,17 @@ const getMulticlassSegmentation = async (imageSource) => {
           }
           // Alpha remains 255
         } else {
-             // Optional: Dim other pixels slightly to pop the class? 
-             // For now, leave as is or dim slightly
-             // const idx = i * 4;
-             // data[idx] *= 0.8;
-             // data[idx+1] *= 0.8;
-             // data[idx+2] *= 0.8;
+          // Optional: Dim other pixels slightly to pop the class? 
+          // For now, leave as is or dim slightly
+          // const idx = i * 4;
+          // data[idx] *= 0.8;
+          // data[idx+1] *= 0.8;
+          // data[idx+2] *= 0.8;
         }
       }
-      
+
       ctx.putImageData(imageData, 0, 0);
-      
+
       return {
         ...cls,
         pixelCount,

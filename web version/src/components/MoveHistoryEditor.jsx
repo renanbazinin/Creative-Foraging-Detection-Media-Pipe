@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { getApiBaseUrl } from '../config/api.config';
 import './MoveHistoryEditor.css';
 import { identifyPlayerByColor, identifyPlayerBySegmentation, identifyPlayersByCloth } from '../utils/colorDetector';
+import { identifyPlayersByAllAll } from '../utils/colorDetectorGeneral';
 import ColorPreviewModal from './ColorPreviewModal';
 import ManualScanSelector from './ManualScanSelector';
 
@@ -58,6 +59,8 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [clothProcessing, setClothProcessing] = useState(false);
   const [clothAnalytics, setClothAnalytics] = useState(null);
   const [aiRetryStatus, setAiRetryStatus] = useState(''); // For showing retry messages
+  const [allAllProcessing, setAllAllProcessing] = useState(false);
+  const [allAllAnalytics, setAllAllAnalytics] = useState(null);
 
 
   const detectPlayerByColor = useCallback(
@@ -665,7 +668,8 @@ function MoveHistoryEditor({ sessionGameId }) {
         const result = await identifyPlayersByCloth(framesPayload, {
           maxFrames: movesWithFrames.length,
           stride: 2,
-          minClothPixels: 80
+          minClothPixels: 80,
+          manualBounds: colorAnchor === 'manually' ? manualScanBounds : null
         });
 
         if (result?.analytics) {
@@ -711,7 +715,7 @@ function MoveHistoryEditor({ sessionGameId }) {
         setClothProcessing(false);
       }
     },
-    [session]
+    [session, colorAnchor, manualScanBounds]
   );
 
   const handleClothIdentifyAll = useCallback(() => {
@@ -721,6 +725,101 @@ function MoveHistoryEditor({ sessionGameId }) {
   const handleClothIdentifyUnknown = useCallback(() => {
     runClothIdentification({ mode: 'unknown' });
   }, [runClothIdentification]);
+
+  const runAllAllIdentification = useCallback(
+    async ({ mode }) => {
+      if (!session || !Array.isArray(session.moves)) {
+        alert('No session data available.');
+        return;
+      }
+
+      const movesWithFrames = session.moves.filter((move) => move.camera_frame);
+      if (movesWithFrames.length === 0) {
+        alert('No camera frames available for All-All identification.');
+        return;
+      }
+
+      const unknownMoveIds = new Set(
+        session.moves
+          .filter((move) => !move.player || move.player === 'Unknown' || move.player === 'None')
+          .map((move) => move._id)
+      );
+
+      if (mode === 'unknown' && unknownMoveIds.size === 0) {
+        alert('All moves already have players assigned.');
+        return;
+      }
+
+      setAllAllProcessing(true);
+      setAllAllAnalytics(null);
+
+      try {
+        const framesPayload = movesWithFrames.map((move) => ({
+          moveId: move._id,
+          frameDataUrl: move.camera_frame,
+          existingPlayer: move.player && move.player !== 'Unknown' ? move.player : null
+        }));
+
+        const result = await identifyPlayersByAllAll(framesPayload, {
+          maxFrames: movesWithFrames.length,
+          stride: 2,
+          minPixels: 80,
+          manualBounds: colorAnchor === 'manually' ? manualScanBounds : null
+        });
+
+        if (result?.analytics) {
+          setAllAllAnalytics(result.analytics);
+        }
+
+        const newSuggestions = {};
+        if (result?.assignments) {
+          Object.entries(result.assignments).forEach(([moveId, info]) => {
+            const shouldApply =
+              mode === 'all' ? true : unknownMoveIds.has(moveId);
+
+            if (!shouldApply) return;
+
+            newSuggestions[moveId] = {
+              method: 'allall',
+              player: info.player,
+              styleLabel: info.styleLabel,
+              confidence: info.confidence,
+              stats: info.stats
+            };
+          });
+        }
+
+        const suggestionCount = Object.keys(newSuggestions).length;
+        if (suggestionCount === 0) {
+          const targetText = mode === 'all' ? 'moves' : 'unknown moves';
+          alert(`All-All method did not find suggestions for any ${targetText}.`);
+        } else {
+          setColorSuggestions((prev) => ({
+            ...prev,
+            ...newSuggestions
+          }));
+          const targetText = mode === 'all' ? 'moves' : 'unknown moves';
+          alert(
+            `All-All method suggested players for ${suggestionCount} ${targetText}. Review and confirm suggestions below.`
+          );
+        }
+      } catch (err) {
+        console.error('[MoveHistoryEditor] All-All identification failed:', err);
+        alert('All-All identification failed: ' + err.message);
+      } finally {
+        setAllAllProcessing(false);
+      }
+    },
+    [session, colorAnchor, manualScanBounds]
+  );
+
+  const handleAllAllIdentifyAll = useCallback(() => {
+    runAllAllIdentification({ mode: 'all' });
+  }, [runAllAllIdentification]);
+
+  const handleAllAllIdentifyUnknown = useCallback(() => {
+    runAllAllIdentification({ mode: 'unknown' });
+  }, [runAllAllIdentification]);
 
   const handleAiIdentifySingle = async (moveId) => {
     if (!sessionGameId || !password) return;
@@ -933,6 +1032,20 @@ function MoveHistoryEditor({ sessionGameId }) {
           >
             {clothProcessing ? '👕 Identifying by Cloth...' : '👕 Identify by Cloth Unknown'}
           </button>
+          <button
+            className="ai-btn allall-btn"
+            onClick={handleAllAllIdentifyAll}
+            disabled={allAllProcessing}
+          >
+            {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All All'}
+          </button>
+          <button
+            className="ai-btn allall-btn"
+            onClick={handleAllAllIdentifyUnknown}
+            disabled={allAllProcessing}
+          >
+            {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All Unknown'}
+          </button>
           <div className="color-anchor-toggle">
             <label>Color anchor:</label>
             <select
@@ -1037,6 +1150,48 @@ function MoveHistoryEditor({ sessionGameId }) {
         </section>
       )}
 
+      {allAllAnalytics && (
+        <section className="cloth-analytics">
+          <div className="cloth-analytics-header">
+            <div>
+              <h3>🌐 All-All Styles Analytics (Background Excluded)</h3>
+              <p>
+                Frames analyzed: {allAllAnalytics.usedFrames}/{allAllAnalytics.totalFrames} · Skipped:{' '}
+                {allAllAnalytics.skippedFrames}
+              </p>
+            </div>
+          </div>
+          <div className="cloth-style-grid">
+            {allAllAnalytics.clusters?.map((cluster) => (
+              <div key={cluster.id} className="cloth-style-card">
+                <div className="cloth-style-card-header">
+                  <span className="style-label">{cluster.styleLabel}</span>
+                  <span className="player-label">{cluster.assignedPlayer}</span>
+                </div>
+                <div
+                  className="cloth-style-color-chip"
+                  style={{ backgroundColor: cluster.hexColor }}
+                />
+                <div className="cloth-style-stats">
+                  <div>
+                    <strong>Mean color:</strong> {cluster.hexColor}
+                  </div>
+                  <div>
+                    <strong>Frames:</strong> {cluster.sampleCount}
+                  </div>
+                  <div>
+                    <strong>Avg pixels:</strong> {formatNumber(cluster.avgPixels || 0)}
+                  </div>
+                  <div>
+                    <strong>Avg brightness:</strong> {formatNumber(cluster.avgBrightness || 0)}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       <div className="move-editor-content">
         <div className="moves-grid">
           {filteredMoves.map((move, index) => (
@@ -1106,11 +1261,13 @@ function MoveHistoryEditor({ sessionGameId }) {
                   const isPlayerA = suggestedPlayer === 'Player A';
                   const bannerColor = isPlayerA ? colorA : colorB;
                   const method = suggestion.method || 'color';
-                  const icon = method === 'cloth' ? '👕' : '🎨';
+                  const icon = method === 'cloth' ? '👕' : method === 'allall' ? '🌐' : '🎨';
                   const methodLabel =
                     method === 'cloth'
                       ? `Cloth suggests${suggestion.styleLabel ? ` (${suggestion.styleLabel})` : ''}:`
-                      : 'Color suggests:';
+                      : method === 'allall'
+                        ? `All-All suggests${suggestion.styleLabel ? ` (${suggestion.styleLabel})` : ''}:`
+                        : 'Color suggests:';
                   const confidenceText =
                     typeof suggestion.confidence === 'number'
                       ? ` · ${Math.round(suggestion.confidence * 100)}% confidence`
