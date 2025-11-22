@@ -329,6 +329,85 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                 b: sumB / pixelCount
             };
 
+            // Generate debug preview showing what MediaPipe sees (all non-background pixels)
+            let debugPreview = null;
+            try {
+                const debugCanvas = document.createElement('canvas');
+                debugCanvas.width = width;
+                debugCanvas.height = height;
+                const debugCtx = debugCanvas.getContext('2d');
+
+                // Draw original image
+                debugCtx.drawImage(imageElement, 0, 0, width, height);
+
+                // Overlay non-background pixels in blue with transparency
+                const debugImageData = debugCtx.getImageData(0, 0, width, height);
+                const debugPixels = debugImageData.data;
+
+                for (let y = 0; y < height; y += 1) {
+                    const maskY = Math.min(maskHeight - 1, Math.floor(y / scaleY));
+                    for (let x = 0; x < width; x += 1) {
+                        const maskX = Math.min(maskWidth - 1, Math.floor(x / scaleX));
+                        const maskIdx = (maskY * maskWidth + maskX) * (isCategoryMaskRGBA ? 4 : 1);
+                        const category = categoryMaskData[maskIdx];
+
+                        if (category !== 0) { // Non-background pixels
+                            const idx = (y * width + x) * 4;
+                            // Blue tint for all non-background
+                            debugPixels[idx] = Math.round(debugPixels[idx] * 0.5 + 50); // R
+                            debugPixels[idx + 1] = Math.round(debugPixels[idx + 1] * 0.5 + 100); // G
+                            debugPixels[idx + 2] = Math.round(debugPixels[idx + 2] * 0.5 + 255 * 0.5); // B
+                        }
+                    }
+                }
+
+                debugCtx.putImageData(debugImageData, 0, 0);
+
+                // If manual bounds, draw the scan area boundaries
+                if (manualBounds) {
+                    // Dim area outside bounds
+                    debugCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                    debugCtx.fillRect(0, 0, width, manualBounds.topY); // Top area
+                    debugCtx.fillRect(0, manualBounds.bottomY, width, height - manualBounds.bottomY); // Bottom area
+
+                    // Draw boundary lines
+                    debugCtx.strokeStyle = '#00FF00'; // Green = Top
+                    debugCtx.lineWidth = 3;
+                    debugCtx.setLineDash([]);
+                    debugCtx.beginPath();
+                    debugCtx.moveTo(0, manualBounds.topY);
+                    debugCtx.lineTo(width, manualBounds.topY);
+                    debugCtx.stroke();
+
+                    debugCtx.strokeStyle = '#FFFF00'; // Yellow = Bottom
+                    debugCtx.lineWidth = 3;
+                    debugCtx.setLineDash([5, 5]);
+                    debugCtx.beginPath();
+                    debugCtx.moveTo(0, manualBounds.bottomY);
+                    debugCtx.lineTo(width, manualBounds.bottomY);
+                    debugCtx.stroke();
+
+                    // Add label
+                    const scanAreaHeight = manualBounds.bottomY - manualBounds.topY;
+                    debugCtx.fillStyle = '#00FF00';
+                    debugCtx.font = 'bold 16px Arial';
+                    debugCtx.fillText(`Manual Scan Area (${scanAreaHeight}px)`, 10, manualBounds.topY - 10);
+                }
+
+                // Add info text
+                debugCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                debugCtx.fillRect(10, 10, 300, 80);
+                debugCtx.fillStyle = '#FFFFFF';
+                debugCtx.font = 'bold 14px Arial';
+                debugCtx.fillText(`Non-BG Pixels: ${pixelCount}`, 20, 30);
+                debugCtx.fillText(`Threshold: ${minPixels}`, 20, 50);
+                debugCtx.fillText(`Mean Color: ${rgbToHex(meanColor.r, meanColor.g, meanColor.b)}`, 20, 70);
+
+                debugPreview = debugCanvas.toDataURL('image/png');
+            } catch (previewErr) {
+                console.warn('[ColorDetectorGeneral] Failed to generate debug preview:', previewErr);
+            }
+
             results.push({
                 moveId: frame.moveId,
                 meanColor,
@@ -340,7 +419,8 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                 centroidX: (sumX / pixelCount) / width,
                 centroidY: (sumY / pixelCount) / height,
                 pixelCount,
-                existingPlayer: frame.existingPlayer || null
+                existingPlayer: frame.existingPlayer || null,
+                debugPreview // Add debug preview to results
             });
         } catch (err) {
             console.warn('[ColorDetectorGeneral] Analysis failed for frame', frame.moveId, err);
@@ -436,7 +516,8 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             confidence,
             stats: {
                 meanColor: result.meanColor,
-                pixelCount: result.pixelCount
+                pixelCount: result.pixelCount,
+                debugPreview: result.debugPreview // Include debug preview
             }
         };
     });

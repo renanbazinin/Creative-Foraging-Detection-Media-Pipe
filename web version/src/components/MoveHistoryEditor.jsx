@@ -58,6 +58,8 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [manualSelectorFrame, setManualSelectorFrame] = useState(null);
   const [clothProcessing, setClothProcessing] = useState(false);
   const [clothAnalytics, setClothAnalytics] = useState(null);
+  const [clothDebugPreviews, setClothDebugPreviews] = useState({}); // { moveId: debugPreview }
+  const [showDebugView, setShowDebugView] = useState(false); // Toggle for all moves
   const [aiRetryStatus, setAiRetryStatus] = useState(''); // For showing retry messages
   const [allAllProcessing, setAllAllProcessing] = useState(false);
   const [allAllAnalytics, setAllAllAnalytics] = useState(null);
@@ -676,6 +678,19 @@ function MoveHistoryEditor({ sessionGameId }) {
           setClothAnalytics(result.analytics);
         }
 
+        // Store debug previews from results
+        const debugPreviews = {};
+        if (result?.assignments) {
+          Object.entries(result.assignments).forEach(([moveId, info]) => {
+            if (info.stats?.debugPreview) {
+              debugPreviews[moveId] = info.stats.debugPreview;
+            }
+          });
+        }
+        if (Object.keys(debugPreviews).length > 0) {
+          setClothDebugPreviews(debugPreviews);
+        }
+
         const newSuggestions = {};
         if (result?.assignments) {
           Object.entries(result.assignments).forEach(([moveId, info]) => {
@@ -769,6 +784,19 @@ function MoveHistoryEditor({ sessionGameId }) {
 
         if (result?.analytics) {
           setAllAllAnalytics(result.analytics);
+        }
+
+        // Store debug previews from results (shared with cloth debug previews)
+        const debugPreviews = {};
+        if (result?.assignments) {
+          Object.entries(result.assignments).forEach(([moveId, info]) => {
+            if (info.stats?.debugPreview) {
+              debugPreviews[moveId] = info.stats.debugPreview;
+            }
+          });
+        }
+        if (Object.keys(debugPreviews).length > 0) {
+          setClothDebugPreviews(prev => ({ ...prev, ...debugPreviews })); // Merge with existing previews
         }
 
         const newSuggestions = {};
@@ -1032,6 +1060,32 @@ function MoveHistoryEditor({ sessionGameId }) {
           >
             {clothProcessing ? '👕 Identifying by Cloth...' : '👕 Identify by Cloth Unknown'}
           </button>
+
+          {Object.keys(clothDebugPreviews).length > 0 && (
+            <>
+              <button
+                className={`ai-btn debug-btn ${showDebugView ? 'active' : ''}`}
+                onClick={() => setShowDebugView(!showDebugView)}
+                style={{
+                  backgroundColor: showDebugView ? '#4CAF50' : '#666',
+                  marginLeft: '20px'
+                }}
+              >
+                {showDebugView ? '🔬 Debug View ON' : '🔬 Show Debug View'}
+              </button>
+              <button
+                className="ai-btn debug-btn"
+                onClick={() => {
+                  setShowDebugView(false);
+                  setClothDebugPreviews({});
+                }}
+                style={{ backgroundColor: '#ff5722' }}
+              >
+                🗑️ Clear Debug
+              </button>
+            </>
+          )}
+
           <button
             className="ai-btn allall-btn"
             onClick={handleAllAllIdentifyAll}
@@ -1210,11 +1264,38 @@ function MoveHistoryEditor({ sessionGameId }) {
                   className="move-image"
                   onClick={(e) => {
                     e.stopPropagation();
-                    setExpandedImage(move.camera_frame);
+                    setExpandedImage(
+                      showDebugView && clothDebugPreviews[move._id]
+                        ? clothDebugPreviews[move._id]
+                        : move.camera_frame
+                    );
                   }}
+                  style={{ position: 'relative' }}
                 >
-                  <img src={move.camera_frame} alt={`Move ${index + 1}`} />
+                  <img
+                    src={
+                      showDebugView && clothDebugPreviews[move._id]
+                        ? clothDebugPreviews[move._id]
+                        : move.camera_frame
+                    }
+                    alt={`Move ${index + 1}`}
+                  />
                   <div className="image-overlay">🔍 Click to enlarge</div>
+                  {showDebugView && clothDebugPreviews[move._id] && (
+                    <div style={{
+                      position: 'absolute',
+                      top: '10px',
+                      right: '10px',
+                      backgroundColor: 'rgba(76, 175, 80, 0.9)',
+                      color: 'white',
+                      padding: '4px 8px',
+                      borderRadius: '4px',
+                      fontSize: '12px',
+                      fontWeight: 'bold'
+                    }}>
+                      🔬 DEBUG
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -1393,35 +1474,39 @@ function MoveHistoryEditor({ sessionGameId }) {
         )}
       </div>
 
-      {expandedImage && (
-        <div className="image-modal" onClick={() => setExpandedImage(null)}>
-          <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
-            <button className="close-modal" onClick={() => setExpandedImage(null)}>✕</button>
-            <img src={expandedImage} alt="Expanded view" />
+      {
+        expandedImage && (
+          <div className="image-modal" onClick={() => setExpandedImage(null)}>
+            <div className="image-modal-content" onClick={(e) => e.stopPropagation()}>
+              <button className="close-modal" onClick={() => setExpandedImage(null)}>✕</button>
+              <img src={expandedImage} alt="Expanded view" />
+            </div>
           </div>
-        </div>
-      )}
+        )
+      }
 
       <ColorPreviewModal
         colorPreview={colorPreview}
         onClose={() => setColorPreview(null)}
       />
 
-      {showManualSelector && manualSelectorFrame && (
-        <ManualScanSelector
-          frameDataUrl={manualSelectorFrame}
-          onSave={(bounds) => {
-            setManualScanBounds(bounds);
-            setShowManualSelector(false);
-          }}
-          onCancel={() => {
-            setShowManualSelector(false);
-            setColorAnchor('bottom'); // Reset to default
-            setManualSelectorFrame(null);
-          }}
-        />
-      )}
-    </div>
+      {
+        showManualSelector && manualSelectorFrame && (
+          <ManualScanSelector
+            frameDataUrl={manualSelectorFrame}
+            onSave={(bounds) => {
+              setManualScanBounds(bounds);
+              setShowManualSelector(false);
+            }}
+            onCancel={() => {
+              setShowManualSelector(false);
+              setColorAnchor('bottom'); // Reset to default
+              setManualSelectorFrame(null);
+            }}
+          />
+        )
+      }
+    </div >
   );
 }
 
