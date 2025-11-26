@@ -1139,38 +1139,7 @@ function MoveHistoryEditor({ sessionGameId }) {
 
         {/* Color Identification Controls */}
         <div className="color-controls">
-          <button
-            className="ai-btn color-btn-all"
-            onClick={handleColorIdentifyAll}
-            disabled={colorProcessing}
-          >
-            {colorProcessing && colorProgress.total > 0
-              ? `🎨 Color ${colorProgress.current}/${colorProgress.total}...`
-              : '🎨 Color Identify All'}
-          </button>
-          <button
-            className="ai-btn ai-btn-unknown color-btn-unknown"
-            onClick={handleColorIdentifyUnknown}
-            disabled={colorProcessing}
-          >
-            {colorProcessing && colorProgress.total > 0
-              ? `🎨 Color Unknown ${colorProgress.current}/${colorProgress.total}...`
-              : '🎨 Color Identify Unknown'}
-          </button>
-          <button
-            className="ai-btn cloth-btn"
-            onClick={handleClothIdentifyAll}
-            disabled={clothProcessing}
-          >
-            {clothProcessing ? '👕 Identifying by Cloth...' : '👕 Identify by Cloth All'}
-          </button>
-          <button
-            className="ai-btn cloth-btn"
-            onClick={handleClothIdentifyUnknown}
-            disabled={clothProcessing}
-          >
-            {clothProcessing ? '👕 Identifying by Cloth...' : '👕 Identify by Cloth Unknown'}
-          </button>
+
 
           {Object.keys(clothDebugPreviews).length > 0 && (
             <>
@@ -1212,7 +1181,7 @@ function MoveHistoryEditor({ sessionGameId }) {
             {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All Unknown'}
           </button>
           <div className="color-anchor-toggle">
-            <label>Color anchor:</label>
+            <label>Color scan:</label>
             <select
               value={colorAnchor}
               onChange={(e) => {
@@ -1271,7 +1240,7 @@ function MoveHistoryEditor({ sessionGameId }) {
             </div>
           )}
         </div>
-      </header>
+      </header >
 
       {clothAnalytics && (
         <section className="cloth-analytics">
@@ -1313,95 +1282,98 @@ function MoveHistoryEditor({ sessionGameId }) {
             ))}
           </div>
         </section>
-      )}
+      )
+      }
 
-      {allAllAnalytics && (
-        <section className="cloth-analytics">
-          <div className="cloth-analytics-header">
-            <div>
-              <h3>🌐 All-All Styles Analytics (Background Excluded)</h3>
-              <p>
-                Frames analyzed: {allAllAnalytics.usedFrames}/{allAllAnalytics.totalFrames} · Skipped:{' '}
-                {allAllAnalytics.skippedFrames}
-              </p>
-            </div>
-            <div className="analytics-controls" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '15px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f5f5f5', padding: '4px 8px', borderRadius: '4px' }}>
-                <label style={{ fontSize: '14px' }}>Confirm threshold: {confirmThreshold}%</label>
-                <input
-                  type="range"
-                  min="50"
-                  max="100"
-                  value={confirmThreshold}
-                  onChange={(e) => setConfirmThreshold(Number(e.target.value))}
-                  style={{ width: '100px' }}
-                />
-                <button
-                  onClick={handleConfirmAllAboveThreshold}
-                  disabled={confirmingAll}
-                  style={{
-                    backgroundColor: confirmingAll ? '#9E9E9E' : '#4CAF50',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '4px',
-                    padding: '4px 8px',
-                    cursor: confirmingAll ? 'not-allowed' : 'pointer',
-                    fontSize: '12px',
-                    fontWeight: 'bold',
-                    minWidth: '140px'
-                  }}
-                >
-                  {confirmingAll
-                    ? `Saving ${confirmProgress.current}/${confirmProgress.total}...`
-                    : `Confirm All ≥ ${confirmThreshold}% (${Object.values(colorSuggestions).filter(s => (s.confidence || 0) * 100 >= confirmThreshold).length})`
-                  }
-                </button>
+      {
+        allAllAnalytics && (
+          <section className="cloth-analytics">
+            <div className="cloth-analytics-header">
+              <div>
+                <h3>🌐 All-All Styles Analytics (Background Excluded)</h3>
+                <p>
+                  Frames analyzed: {allAllAnalytics.usedFrames}/{allAllAnalytics.totalFrames} · Skipped:{' '}
+                  {allAllAnalytics.skippedFrames}
+                </p>
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <label>Sort by:</label>
-                <select
-                  value={analyticsSort}
-                  onChange={(e) => setAnalyticsSort(e.target.value)}
-                  style={{ padding: '4px', borderRadius: '4px' }}
-                >
-                  <option value="chronological">Chronological</option>
-                  <option value="confidenceDesc">Confidence (High to Low)</option>
-                  <option value="confidenceAsc">Confidence (Low to High)</option>
-                </select>
-              </div>
-            </div>
-          </div>
-          <div className="cloth-style-grid">
-            {allAllAnalytics.clusters?.map((cluster) => (
-              <div key={cluster.id} className="cloth-style-card">
-                <div className="cloth-style-card-header">
-                  <span className="style-label">{cluster.styleLabel}</span>
-                  <span className="player-label">{cluster.assignedPlayer}</span>
+              <div className="analytics-controls" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '15px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f5f5f5', padding: '4px 8px', borderRadius: '4px' }}>
+                  <label style={{ fontSize: '14px' }}>Confirm threshold: {confirmThreshold}%</label>
+                  <input
+                    type="range"
+                    min="50"
+                    max="100"
+                    value={confirmThreshold}
+                    onChange={(e) => setConfirmThreshold(Number(e.target.value))}
+                    style={{ width: '100px' }}
+                  />
+                  <button
+                    onClick={handleConfirmAllAboveThreshold}
+                    disabled={confirmingAll}
+                    style={{
+                      backgroundColor: confirmingAll ? '#9E9E9E' : '#4CAF50',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '4px',
+                      padding: '4px 8px',
+                      cursor: confirmingAll ? 'not-allowed' : 'pointer',
+                      fontSize: '12px',
+                      fontWeight: 'bold',
+                      minWidth: '140px'
+                    }}
+                  >
+                    {confirmingAll
+                      ? `Saving ${confirmProgress.current}/${confirmProgress.total}...`
+                      : `Confirm All ≥ ${confirmThreshold}% (${Object.values(colorSuggestions).filter(s => (s.confidence || 0) * 100 >= confirmThreshold).length})`
+                    }
+                  </button>
                 </div>
-                <div
-                  className="cloth-style-color-chip"
-                  style={{ backgroundColor: cluster.hexColor }}
-                />
-                <div className="cloth-style-stats">
-                  <div>
-                    <strong>Mean color:</strong> {cluster.hexColor}
-                  </div>
-                  <div>
-                    <strong>Frames:</strong> {cluster.sampleCount}
-                  </div>
-                  <div>
-                    <strong>Avg pixels:</strong> {formatNumber(cluster.avgPixels || 0)}
-                  </div>
-                  <div>
-                    <strong>Avg brightness:</strong> {formatNumber(cluster.avgBrightness || 0)}
-                  </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <label>Sort by:</label>
+                  <select
+                    value={analyticsSort}
+                    onChange={(e) => setAnalyticsSort(e.target.value)}
+                    style={{ padding: '4px', borderRadius: '4px' }}
+                  >
+                    <option value="chronological">Chronological</option>
+                    <option value="confidenceDesc">Confidence (High to Low)</option>
+                    <option value="confidenceAsc">Confidence (Low to High)</option>
+                  </select>
                 </div>
               </div>
-            ))}
-          </div>
-        </section>
-      )}
+            </div>
+            <div className="cloth-style-grid">
+              {allAllAnalytics.clusters?.map((cluster) => (
+                <div key={cluster.id} className="cloth-style-card">
+                  <div className="cloth-style-card-header">
+                    <span className="style-label">{cluster.styleLabel}</span>
+                    <span className="player-label">{cluster.assignedPlayer}</span>
+                  </div>
+                  <div
+                    className="cloth-style-color-chip"
+                    style={{ backgroundColor: cluster.hexColor }}
+                  />
+                  <div className="cloth-style-stats">
+                    <div>
+                      <strong>Mean color:</strong> {cluster.hexColor}
+                    </div>
+                    <div>
+                      <strong>Frames:</strong> {cluster.sampleCount}
+                    </div>
+                    <div>
+                      <strong>Avg pixels:</strong> {formatNumber(cluster.avgPixels || 0)}
+                    </div>
+                    <div>
+                      <strong>Avg brightness:</strong> {formatNumber(cluster.avgBrightness || 0)}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )
+      }
 
       <div className="move-editor-content">
         <div className="moves-grid">
