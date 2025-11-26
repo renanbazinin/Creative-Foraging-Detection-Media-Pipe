@@ -510,15 +510,22 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             ? Math.max(0, 1 - distanceToOwn / (distanceToOwn + distanceToOther + 1e-6))
             : 1;
 
+        // Calculate cluster mean color for consistent styling
+        const clusterStat = clusterStats[clusterIndex];
+        const avgR = clusterStat.sumR / Math.max(1, clusterStat.samples.length);
+        const avgG = clusterStat.sumG / Math.max(1, clusterStat.samples.length);
+        const avgB = clusterStat.sumB / Math.max(1, clusterStat.samples.length);
+
         assignmentsMap[result.moveId] = {
             player,
             clusterId: clusterIndex,
             styleLabel: `Style ${clusterIndex + 1}`,
             confidence,
             stats: {
-                meanColor: result.meanColor,
+                // Use the CLUSTER'S mean color, not the individual frame's mean color
+                meanColor: { r: avgR, g: avgG, b: avgB },
                 pixelCount: result.pixelCount,
-                debugPreview: result.debugPreview // Include debug preview
+                debugPreview: result.debugPreview
             }
         };
     });

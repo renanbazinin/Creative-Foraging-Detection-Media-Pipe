@@ -65,6 +65,9 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [allAllAnalytics, setAllAllAnalytics] = useState(null);
   const [analyticsSort, setAnalyticsSort] = useState('chronological');
   const [confirmThreshold, setConfirmThreshold] = useState(55); // Default 55%
+  const [confirmingAll, setConfirmingAll] = useState(false);
+  const [confirmProgress, setConfirmProgress] = useState({ current: 0, total: 0 });
+  const [confirmingMoveId, setConfirmingMoveId] = useState(null);
 
 
   const detectPlayerByColor = useCallback(
@@ -955,7 +958,11 @@ function MoveHistoryEditor({ sessionGameId }) {
       return;
     }
 
+    setConfirmingAll(true);
+    setConfirmProgress({ current: 0, total: movesToConfirm.length });
     let confirmedCount = 0;
+
+    // Process in batches to avoid freezing UI completely
     for (const { moveId, player } of movesToConfirm) {
       try {
         await handlePlayerUpdate(moveId, player);
@@ -966,11 +973,14 @@ function MoveHistoryEditor({ sessionGameId }) {
           return updated;
         });
         confirmedCount++;
+        setConfirmProgress(prev => ({ ...prev, current: prev.current + 1 }));
       } catch (err) {
         console.error(`Failed to confirm move ${moveId}:`, err);
       }
     }
 
+    setConfirmingAll(false);
+    setConfirmProgress({ current: 0, total: 0 });
     alert(`Successfully confirmed ${confirmedCount} moves.`);
   };
 
@@ -1300,18 +1310,23 @@ function MoveHistoryEditor({ sessionGameId }) {
                 />
                 <button
                   onClick={handleConfirmAllAboveThreshold}
+                  disabled={confirmingAll}
                   style={{
-                    backgroundColor: '#4CAF50',
+                    backgroundColor: confirmingAll ? '#9E9E9E' : '#4CAF50',
                     color: 'white',
                     border: 'none',
                     borderRadius: '4px',
                     padding: '4px 8px',
-                    cursor: 'pointer',
+                    cursor: confirmingAll ? 'not-allowed' : 'pointer',
                     fontSize: '12px',
-                    fontWeight: 'bold'
+                    fontWeight: 'bold',
+                    minWidth: '140px'
                   }}
                 >
-                  Confirm All ≥ {confirmThreshold}%
+                  {confirmingAll
+                    ? `Saving ${confirmProgress.current}/${confirmProgress.total}...`
+                    : `Confirm All ≥ ${confirmThreshold}% (${Object.values(colorSuggestions).filter(s => (s.confidence || 0) * 100 >= confirmThreshold).length})`
+                  }
                 </button>
               </div>
 
@@ -1499,12 +1514,15 @@ function MoveHistoryEditor({ sessionGameId }) {
                       </div>
                       <button
                         className="ai-confirm-btn"
-                        onClick={(e) => {
+                        disabled={confirmingMoveId === move._id}
+                        onClick={async (e) => {
                           e.stopPropagation();
-                          handleConfirmColorSuggestion(move._id);
+                          setConfirmingMoveId(move._id);
+                          await handleConfirmColorSuggestion(move._id);
+                          setConfirmingMoveId(null);
                         }}
                       >
-                        ✓ Confirm
+                        {confirmingMoveId === move._id ? '...' : '✓ Confirm'}
                       </button>
                     </div>
                   );
