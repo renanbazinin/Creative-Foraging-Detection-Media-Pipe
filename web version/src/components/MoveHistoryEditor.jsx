@@ -63,6 +63,7 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [aiRetryStatus, setAiRetryStatus] = useState(''); // For showing retry messages
   const [allAllProcessing, setAllAllProcessing] = useState(false);
   const [allAllAnalytics, setAllAllAnalytics] = useState(null);
+  const [analyticsSort, setAnalyticsSort] = useState('chronological');
 
 
   const detectPlayerByColor = useCallback(
@@ -901,6 +902,22 @@ function MoveHistoryEditor({ sessionGameId }) {
     return move.phase === filterPhase;
   }) || [];
 
+  const getSortedMoves = () => {
+    const moves = [...filteredMoves];
+    if (analyticsSort === 'chronological') return moves;
+
+    return moves.sort((a, b) => {
+      const confA = colorSuggestions[a._id]?.confidence || 0;
+      const confB = colorSuggestions[b._id]?.confidence || 0;
+
+      if (analyticsSort === 'confidenceDesc') return confB - confA;
+      if (analyticsSort === 'confidenceAsc') return confA - confB;
+      return 0;
+    });
+  };
+
+  const sortedMoves = getSortedMoves();
+
   if (loading) {
     return (
       <div className="move-editor-container">
@@ -1214,6 +1231,18 @@ function MoveHistoryEditor({ sessionGameId }) {
                 {allAllAnalytics.skippedFrames}
               </p>
             </div>
+            <div className="analytics-controls" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <label>Sort moves by:</label>
+              <select
+                value={analyticsSort}
+                onChange={(e) => setAnalyticsSort(e.target.value)}
+                style={{ padding: '4px', borderRadius: '4px' }}
+              >
+                <option value="chronological">Chronological</option>
+                <option value="confidenceDesc">Confidence (High to Low)</option>
+                <option value="confidenceAsc">Confidence (Low to High)</option>
+              </select>
+            </div>
           </div>
           <div className="cloth-style-grid">
             {allAllAnalytics.clusters?.map((cluster) => (
@@ -1248,7 +1277,7 @@ function MoveHistoryEditor({ sessionGameId }) {
 
       <div className="move-editor-content">
         <div className="moves-grid">
-          {filteredMoves.map((move, index) => (
+          {sortedMoves.map((move, index) => (
             <div
               key={move._id || index}
               className={`move-card ${selectedMove?._id === move._id ? 'selected' : ''}`}
