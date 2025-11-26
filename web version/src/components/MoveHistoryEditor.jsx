@@ -1468,12 +1468,24 @@ function MoveHistoryEditor({ sessionGameId }) {
                       ? ` · ${Math.round(suggestion.confidence * 100)}% confidence`
                       : '';
 
+                  // If we have stats from k-means (cloth/allall), use the mean color of the cluster
+                  // Otherwise fall back to the player's assigned color (A/B)
+                  let outlineColor = bannerColor;
+                  if (suggestion.stats && suggestion.stats.meanColor) {
+                    const { r, g, b } = suggestion.stats.meanColor;
+                    const toHex = (c) => {
+                      const hex = Math.round(c).toString(16);
+                      return hex.length === 1 ? '0' + hex : hex;
+                    };
+                    outlineColor = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+                  }
+
                   return (
                     <div
                       className="ai-suggestion-banner color-suggestion-banner"
                       style={{
-                        borderColor: bannerColor,
-                        outline: `2px solid ${bannerColor}`,
+                        borderColor: outlineColor,
+                        outline: `2px solid ${outlineColor}`,
                         outlineOffset: '2px'
                       }}
                     >
