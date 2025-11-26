@@ -774,7 +774,9 @@ function MoveHistoryEditor({ sessionGameId }) {
         const framesPayload = movesWithFrames.map((move) => ({
           moveId: move._id,
           frameDataUrl: move.camera_frame,
-          existingPlayer: move.player && move.player !== 'Unknown' ? move.player : null
+          // Always pass existing player info to help the clustering algorithm
+          // even if we only want suggestions for unknown moves later
+          existingPlayer: move.player && move.player !== 'Unknown' && move.player !== 'None' ? move.player : null
         }));
 
         const result = await identifyPlayersByAllAll(framesPayload, {
@@ -908,6 +910,17 @@ function MoveHistoryEditor({ sessionGameId }) {
     if (analyticsSort === 'chronological') return moves;
 
     return moves.sort((a, b) => {
+      const hasSuggestionA = !!colorSuggestions[a._id];
+      const hasSuggestionB = !!colorSuggestions[b._id];
+
+      // Always prioritize moves with suggestions
+      if (hasSuggestionA && !hasSuggestionB) return -1;
+      if (!hasSuggestionA && hasSuggestionB) return 1;
+
+      // If neither has suggestion, keep original order (or sort by ID/index if needed)
+      if (!hasSuggestionA && !hasSuggestionB) return 0;
+
+      // Both have suggestions, sort by confidence
       const confA = colorSuggestions[a._id]?.confidence || 0;
       const confB = colorSuggestions[b._id]?.confidence || 0;
 
