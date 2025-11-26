@@ -1485,7 +1485,8 @@ function MoveHistoryEditor({ sessionGameId }) {
                       className="ai-suggestion-banner color-suggestion-banner"
                       style={{
                         borderColor: outlineColor,
-                        outline: `2px solid ${outlineColor}`,
+                        borderWidth: '2px',
+                        outline: `4px solid ${outlineColor}`,
                         outlineOffset: '2px'
                       }}
                     >
