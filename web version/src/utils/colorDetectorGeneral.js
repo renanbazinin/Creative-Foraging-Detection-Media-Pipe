@@ -244,7 +244,7 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
     const maxFrames = options.maxFrames || frames.length;
     const stride = options.stride || 2;
     //const minPixels = options.minPixels || 80;
-    const minPixels = options.minPixels || 20;
+    const minPixels = options.minPixels || 5;
     const manualBounds = options.manualBounds || null;
 
     const framesToProcess = frames.slice(0, maxFrames);
