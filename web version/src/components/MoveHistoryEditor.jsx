@@ -64,6 +64,7 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [allAllProcessing, setAllAllProcessing] = useState(false);
   const [allAllAnalytics, setAllAllAnalytics] = useState(null);
   const [analyticsSort, setAnalyticsSort] = useState('chronological');
+  const [confirmThreshold, setConfirmThreshold] = useState(55); // Default 55%
 
 
   const detectPlayerByColor = useCallback(
@@ -918,6 +919,48 @@ function MoveHistoryEditor({ sessionGameId }) {
 
   const sortedMoves = getSortedMoves();
 
+  const handleConfirmAllAboveThreshold = async () => {
+    if (!sessionGameId || !password) return;
+
+    const movesToConfirm = Object.entries(colorSuggestions)
+      .filter(([moveId, suggestion]) => {
+        // Only confirm if confidence is above threshold
+        const confidencePercent = (suggestion.confidence || 0) * 100;
+        return confidencePercent >= confirmThreshold;
+      })
+      .map(([moveId, suggestion]) => ({
+        moveId,
+        player: suggestion.player
+      }));
+
+    if (movesToConfirm.length === 0) {
+      alert(`No moves found with confidence above ${confirmThreshold}%`);
+      return;
+    }
+
+    if (!window.confirm(`Are you sure you want to confirm ${movesToConfirm.length} moves with confidence >= ${confirmThreshold}%?`)) {
+      return;
+    }
+
+    let confirmedCount = 0;
+    for (const { moveId, player } of movesToConfirm) {
+      try {
+        await handlePlayerUpdate(moveId, player);
+        // Remove suggestion after confirmation
+        setColorSuggestions(prev => {
+          const updated = { ...prev };
+          delete updated[moveId];
+          return updated;
+        });
+        confirmedCount++;
+      } catch (err) {
+        console.error(`Failed to confirm move ${moveId}:`, err);
+      }
+    }
+
+    alert(`Successfully confirmed ${confirmedCount} moves.`);
+  };
+
   if (loading) {
     return (
       <div className="move-editor-container">
@@ -1231,17 +1274,46 @@ function MoveHistoryEditor({ sessionGameId }) {
                 {allAllAnalytics.skippedFrames}
               </p>
             </div>
-            <div className="analytics-controls" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <label>Sort moves by:</label>
-              <select
-                value={analyticsSort}
-                onChange={(e) => setAnalyticsSort(e.target.value)}
-                style={{ padding: '4px', borderRadius: '4px' }}
-              >
-                <option value="chronological">Chronological</option>
-                <option value="confidenceDesc">Confidence (High to Low)</option>
-                <option value="confidenceAsc">Confidence (Low to High)</option>
-              </select>
+            <div className="analytics-controls" style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '15px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', backgroundColor: '#f5f5f5', padding: '4px 8px', borderRadius: '4px' }}>
+                <label style={{ fontSize: '14px' }}>Confirm threshold: {confirmThreshold}%</label>
+                <input
+                  type="range"
+                  min="50"
+                  max="100"
+                  value={confirmThreshold}
+                  onChange={(e) => setConfirmThreshold(Number(e.target.value))}
+                  style={{ width: '100px' }}
+                />
+                <button
+                  onClick={handleConfirmAllAboveThreshold}
+                  style={{
+                    backgroundColor: '#4CAF50',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '4px 8px',
+                    cursor: 'pointer',
+                    fontSize: '12px',
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Confirm All ≥ {confirmThreshold}%
+                </button>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <label>Sort by:</label>
+                <select
+                  value={analyticsSort}
+                  onChange={(e) => setAnalyticsSort(e.target.value)}
+                  style={{ padding: '4px', borderRadius: '4px' }}
+                >
+                  <option value="chronological">Chronological</option>
+                  <option value="confidenceDesc">Confidence (High to Low)</option>
+                  <option value="confidenceAsc">Confidence (Low to High)</option>
+                </select>
+              </div>
             </div>
           </div>
           <div className="cloth-style-grid">
