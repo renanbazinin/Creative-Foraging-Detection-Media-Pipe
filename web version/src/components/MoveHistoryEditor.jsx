@@ -1078,215 +1078,219 @@ function MoveHistoryEditor({ sessionGameId }) {
             <span style={{ color: colorB, fontWeight: 'bold' }}>Player B: {playerBCount}</span>
           </div>
         </div>
-        <div className="phase-filter">
-          <button
-            className={`filter-btn ${filterPhase === 'all' ? 'active' : ''}`}
-            onClick={() => setFilterPhase('all')}
-          >
-            All ({session.moves?.length || 0})
-          </button>
-          <button
-            className={`filter-btn ${filterPhase === 'practice' ? 'active' : ''}`}
-            onClick={() => setFilterPhase('practice')}
-          >
-            Practice ({practiceCount})
-          </button>
-          <button
-            className={`filter-btn ${filterPhase === 'experiment' ? 'active' : ''}`}
-            onClick={() => setFilterPhase('experiment')}
-          >
-            Experiment ({experimentCount})
-          </button>
-        </div>
-        <div className="phase-filter" style={{ marginTop: '10px' }}>
-          <button
-            className={`filter-btn ${filterPlayer === 'all' ? 'active' : ''}`}
-            onClick={() => setFilterPlayer('all')}
-          >
-            All Players
-          </button>
-          <button
-            className={`filter-btn ${filterPlayer === 'Player A' ? 'active' : ''}`}
-            onClick={() => setFilterPlayer('Player A')}
-            style={{ borderColor: colorA, color: filterPlayer === 'Player A' ? 'white' : colorA, backgroundColor: filterPlayer === 'Player A' ? colorA : 'transparent' }}
-          >
-            Player A
-          </button>
-          <button
-            className={`filter-btn ${filterPlayer === 'Player B' ? 'active' : ''}`}
-            onClick={() => setFilterPlayer('Player B')}
-            style={{ borderColor: colorB, color: filterPlayer === 'Player B' ? 'white' : colorB, backgroundColor: filterPlayer === 'Player B' ? colorB : 'transparent' }}
-          >
-            Player B
-          </button>
-          <button
-            className={`filter-btn ${filterPlayer === 'None' ? 'active' : ''}`}
-            onClick={() => setFilterPlayer('None')}
-          >
-            None/Unknown
-          </button>
+        <div className="header-center-group">
+          <div className="phase-filter">
+            <button
+              className={`filter-btn ${filterPhase === 'all' ? 'active' : ''}`}
+              onClick={() => setFilterPhase('all')}
+            >
+              All ({session.moves?.length || 0})
+            </button>
+            <button
+              className={`filter-btn ${filterPhase === 'practice' ? 'active' : ''}`}
+              onClick={() => setFilterPhase('practice')}
+            >
+              Practice ({practiceCount})
+            </button>
+            <button
+              className={`filter-btn ${filterPhase === 'experiment' ? 'active' : ''}`}
+              onClick={() => setFilterPhase('experiment')}
+            >
+              Experiment ({experimentCount})
+            </button>
+          </div>
+          <div className="phase-filter" style={{ marginTop: '4px' }}>
+            <button
+              className={`filter-btn ${filterPlayer === 'all' ? 'active' : ''}`}
+              onClick={() => setFilterPlayer('all')}
+            >
+              All Players
+            </button>
+            <button
+              className={`filter-btn ${filterPlayer === 'Player A' ? 'active' : ''}`}
+              onClick={() => setFilterPlayer('Player A')}
+              style={{ borderColor: colorA, color: filterPlayer === 'Player A' ? 'white' : colorA, backgroundColor: filterPlayer === 'Player A' ? colorA : 'transparent' }}
+            >
+              Player A
+            </button>
+            <button
+              className={`filter-btn ${filterPlayer === 'Player B' ? 'active' : ''}`}
+              onClick={() => setFilterPlayer('Player B')}
+              style={{ borderColor: colorB, color: filterPlayer === 'Player B' ? 'white' : colorB, backgroundColor: filterPlayer === 'Player B' ? colorB : 'transparent' }}
+            >
+              Player B
+            </button>
+            <button
+              className={`filter-btn ${filterPlayer === 'None' ? 'active' : ''}`}
+              onClick={() => setFilterPlayer('None')}
+            >
+              None/Unknown
+            </button>
+          </div>
         </div>
 
-        {/* Bracelet Colors - Shared by both AI and Color */}
-        <div className="bracelet-colors-controls">
-          <button
-            className="color-picker-toggle"
-            onClick={() => setShowColorPicker(!showColorPicker)}
-          >
-            Bracelet Colors
-          </button>
-          {showColorPicker && (
-            <div className="color-picker-panel">
-              <div className="color-input-group">
-                <label>Player A:</label>
-                <input
-                  type="color"
-                  value={colorA}
-                  onChange={(e) => setColorA(e.target.value)}
-                />
-                <span>{colorA}</span>
+        <div className="header-controls-group">
+          {/* Bracelet Colors - Shared by both AI and Color */}
+          <div className="bracelet-colors-controls">
+            <button
+              className="color-picker-toggle"
+              onClick={() => setShowColorPicker(!showColorPicker)}
+            >
+              Bracelet Colors
+            </button>
+            {showColorPicker && (
+              <div className="color-picker-panel">
+                <div className="color-input-group">
+                  <label>Player A:</label>
+                  <input
+                    type="color"
+                    value={colorA}
+                    onChange={(e) => setColorA(e.target.value)}
+                  />
+                  <span>{colorA}</span>
+                </div>
+                <div className="color-input-group">
+                  <label>Player B:</label>
+                  <input
+                    type="color"
+                    value={colorB}
+                    onChange={(e) => setColorB(e.target.value)}
+                  />
+                  <span>{colorB}</span>
+                </div>
               </div>
-              <div className="color-input-group">
-                <label>Player B:</label>
-                <input
-                  type="color"
-                  value={colorB}
-                  onChange={(e) => setColorB(e.target.value)}
-                />
-                <span>{colorB}</span>
-              </div>
-            </div>
-          )}
-        </div>
+            )}
+          </div>
 
-        {/* AI Identification Controls */}
-        <div className="ai-controls">
-          <button
-            className="ai-btn ai-btn-all"
-            onClick={handleAiIdentifyAll}
-            disabled={aiProcessing}
-          >
-            {aiProcessing && aiProgress.total > 0
-              ? aiRetryStatus
-                ? `${aiRetryStatus} ${aiProgress.current}/${aiProgress.total}`
-                : `Processing ${aiProgress.current}/${aiProgress.total}...`
-              : 'AI Identify All'}
-          </button>
-          <button
-            className="ai-btn ai-btn-unknown"
-            onClick={handleAiIdentifyUnknown}
-            disabled={aiProcessing}
-          >
-            {aiProcessing && aiProgress.total > 0
-              ? aiRetryStatus
-                ? `${aiRetryStatus} ${aiProgress.current}/${aiProgress.total}`
-                : `Processing ${aiProgress.current}/${aiProgress.total}...`
-              : 'AI Identify Unknown'}
-          </button>
-        </div>
+          {/* AI Identification Controls */}
+          <div className="ai-controls">
+            <button
+              className="ai-btn ai-btn-all"
+              onClick={handleAiIdentifyAll}
+              disabled={aiProcessing}
+            >
+              {aiProcessing && aiProgress.total > 0
+                ? aiRetryStatus
+                  ? `${aiRetryStatus} ${aiProgress.current}/${aiProgress.total}`
+                  : `Processing ${aiProgress.current}/${aiProgress.total}...`
+                : 'AI Identify All'}
+            </button>
+            <button
+              className="ai-btn ai-btn-unknown"
+              onClick={handleAiIdentifyUnknown}
+              disabled={aiProcessing}
+            >
+              {aiProcessing && aiProgress.total > 0
+                ? aiRetryStatus
+                  ? `${aiRetryStatus} ${aiProgress.current}/${aiProgress.total}`
+                  : `Processing ${aiProgress.current}/${aiProgress.total}...`
+                : 'AI Identify Unknown'}
+            </button>
+          </div>
 
-        {/* Color Identification Controls */}
-        <div className="color-controls">
+          {/* Color Identification Controls */}
+          <div className="color-controls">
 
 
-          {Object.keys(clothDebugPreviews).length > 0 && (
-            <>
-              <button
-                className={`ai-btn debug-btn ${showDebugView ? 'active' : ''}`}
-                onClick={() => setShowDebugView(!showDebugView)}
-                style={{
-                  backgroundColor: showDebugView ? '#4CAF50' : '#666',
-                  marginLeft: '20px'
-                }}
-              >
-                {showDebugView ? '🔬 Debug View ON' : '🔬 Show Debug View'}
-              </button>
-              <button
-                className="ai-btn debug-btn"
-                onClick={() => {
-                  setShowDebugView(false);
-                  setClothDebugPreviews({});
-                }}
-                style={{ backgroundColor: '#ff5722' }}
-              >
-                🗑️ Clear Debug
-              </button>
-            </>
-          )}
+            {Object.keys(clothDebugPreviews).length > 0 && (
+              <>
+                <button
+                  className={`ai-btn debug-btn ${showDebugView ? 'active' : ''}`}
+                  onClick={() => setShowDebugView(!showDebugView)}
+                  style={{
+                    backgroundColor: showDebugView ? '#4CAF50' : '#666',
+                    marginLeft: '20px'
+                  }}
+                >
+                  {showDebugView ? '🔬 Debug View ON' : '🔬 Show Debug View'}
+                </button>
+                <button
+                  className="ai-btn debug-btn"
+                  onClick={() => {
+                    setShowDebugView(false);
+                    setClothDebugPreviews({});
+                  }}
+                  style={{ backgroundColor: '#ff5722' }}
+                >
+                  🗑️ Clear Debug
+                </button>
+              </>
+            )}
 
-          <button
-            className="ai-btn allall-btn"
-            onClick={handleAllAllIdentifyAll}
-            disabled={allAllProcessing}
-          >
-            {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All All'}
-          </button>
-          <button
-            className="ai-btn allall-btn"
-            onClick={handleAllAllIdentifyUnknown}
-            disabled={allAllProcessing}
-          >
-            {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All Unknown'}
-          </button>
-          <div className="color-anchor-toggle">
-            <label>Color scan:</label>
-            <select
-              value={colorAnchor}
-              onChange={(e) => {
-                setColorAnchor(e.target.value);
-                if (e.target.value === 'manually') {
-                  // Get a random frame to use for manual selection
-                  const moves = session?.moves || [];
-                  if (moves.length > 0) {
-                    const randomMove = moves[Math.floor(Math.random() * moves.length)];
-                    if (randomMove?.camera_frame) {
-                      setManualSelectorFrame(randomMove.camera_frame);
-                      setShowManualSelector(true);
+            <button
+              className="ai-btn allall-btn"
+              onClick={handleAllAllIdentifyAll}
+              disabled={allAllProcessing}
+            >
+              {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All All'}
+            </button>
+            <button
+              className="ai-btn allall-btn"
+              onClick={handleAllAllIdentifyUnknown}
+              disabled={allAllProcessing}
+            >
+              {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All Unknown'}
+            </button>
+            <div className="color-anchor-toggle">
+              <label>Color scan:</label>
+              <select
+                value={colorAnchor}
+                onChange={(e) => {
+                  setColorAnchor(e.target.value);
+                  if (e.target.value === 'manually') {
+                    // Get a random frame to use for manual selection
+                    const moves = session?.moves || [];
+                    if (moves.length > 0) {
+                      const randomMove = moves[Math.floor(Math.random() * moves.length)];
+                      if (randomMove?.camera_frame) {
+                        setManualSelectorFrame(randomMove.camera_frame);
+                        setShowManualSelector(true);
+                      } else {
+                        alert('No frames available. Please ensure moves have camera frames.');
+                        setColorAnchor('bottom'); // Reset to previous value
+                      }
                     } else {
-                      alert('No frames available. Please ensure moves have camera frames.');
+                      alert('No moves available.');
                       setColorAnchor('bottom'); // Reset to previous value
                     }
                   } else {
-                    alert('No moves available.');
-                    setColorAnchor('bottom'); // Reset to previous value
+                    setShowManualSelector(false);
+                    setManualScanBounds(null);
+                    setManualSelectorFrame(null);
                   }
-                } else {
-                  setShowManualSelector(false);
-                  setManualScanBounds(null);
-                  setManualSelectorFrame(null);
-                }
-              }}
-            >
-              <option value="bottom">Bottom</option>
-              <option value="top">Top</option>
-              <option value="manually">Manually</option>
-            </select>
-          </div>
-          {colorAnchor !== 'manually' && (
-            <div className="color-scan-percentage">
-              <label>Scan area: {colorScanPercentage}%</label>
-              <input
-                type="range"
-                min="20"
-                max="100"
-                step="5"
-                value={colorScanPercentage}
-                onChange={(e) => setColorScanPercentage(Number(e.target.value))}
-                style={{ width: '120px', marginLeft: '8px' }}
-              />
-            </div>
-          )}
-          {colorAnchor === 'manually' && manualScanBounds && (
-            <div className="manual-bounds-info">
-              <span>Manual: Y={manualScanBounds.topY} → {manualScanBounds.bottomY}</span>
-              <button
-                onClick={() => setShowManualSelector(true)}
-                style={{ marginLeft: '8px', padding: '4px 8px' }}
+                }}
               >
-                Edit
-              </button>
+                <option value="bottom">Bottom</option>
+                <option value="top">Top</option>
+                <option value="manually">Manually</option>
+              </select>
             </div>
-          )}
+            {colorAnchor !== 'manually' && (
+              <div className="color-scan-percentage">
+                <label>Scan area: {colorScanPercentage}%</label>
+                <input
+                  type="range"
+                  min="20"
+                  max="100"
+                  step="5"
+                  value={colorScanPercentage}
+                  onChange={(e) => setColorScanPercentage(Number(e.target.value))}
+                  style={{ width: '120px', marginLeft: '8px' }}
+                />
+              </div>
+            )}
+            {colorAnchor === 'manually' && manualScanBounds && (
+              <div className="manual-bounds-info">
+                <span>Manual: Y={manualScanBounds.topY} → {manualScanBounds.bottomY}</span>
+                <button
+                  onClick={() => setShowManualSelector(true)}
+                  style={{ marginLeft: '8px', padding: '4px 8px' }}
+                >
+                  Edit
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header >
 

@@ -10,10 +10,10 @@
 .move-editor-header {
   background: #151515;
   border-bottom: 2px solid #2a2a2a;
-  padding: 20px 32px;
+  padding: 12px 20px;
   display: flex;
-  align-items: center;
-  gap: 24px;
+  align-items: flex-start;
+  gap: 20px;
   flex-wrap: wrap;
   flex-shrink: 0;
   z-index: 100;
@@ -21,15 +21,16 @@
 }
 
 .back-button {
-  padding: 10px 20px;
+  padding: 8px 16px;
   background: #2a2a2a;
   color: #fff;
   border: 1px solid #4CAF50;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   transition: all 0.2s ease;
+  height: 36px;
 }
 
 .back-button:hover {
@@ -38,22 +39,25 @@
 }
 
 .move-editor-title {
-  flex: 1;
-  min-width: 200px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .move-editor-title h1 {
-  margin: 0 0 8px 0;
-  font-size: 28px;
+  margin: 0;
+  font-size: 20px;
   font-weight: 700;
   color: #4CAF50;
+  line-height: 1.2;
 }
 
 .session-info {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
-  font-size: 14px;
+  font-size: 12px;
+  color: #888;
 }
 
 .session-id {
@@ -65,6 +69,21 @@
   color: #aaa;
 }
 
+.header-center-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.header-controls-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-left: auto;
+  /* Push to right */
+}
+
 .phase-filter {
   display: flex;
   gap: 8px;
@@ -74,15 +93,16 @@
 }
 
 .filter-btn {
-  padding: 8px 16px;
+  padding: 6px 12px;
   background: transparent;
   color: #ccc;
   border: none;
   border-radius: 6px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 12px;
   font-weight: 600;
   transition: all 0.2s ease;
+  white-space: nowrap;
 }
 
 .filter-btn:hover {
@@ -373,6 +393,7 @@
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -426,7 +447,8 @@
   overflow-y: auto;
   scrollbar-width: thin;
   scrollbar-color: #4CAF50 #1a1a1a;
-  padding-right: 8px; /* Avoid scrollbar overlap */
+  padding-right: 8px;
+  /* Avoid scrollbar overlap */
 }
 
 .color-preview-modal::-webkit-scrollbar {
@@ -941,7 +963,7 @@
   margin-bottom: 8px;
 }
 
-.manual-scan-selector > p {
+.manual-scan-selector>p {
   color: #ccc;
   margin-bottom: 16px;
   font-size: 14px;
@@ -1006,6 +1028,7 @@
     opacity: 0;
     transform: translateY(-10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -1065,12 +1088,12 @@
     grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
     gap: 16px;
   }
-  
+
   .ai-controls {
     width: 100%;
     justify-content: flex-start;
   }
-  
+
   .color-picker-panel {
     right: auto;
     left: 0;
@@ -1098,21 +1121,21 @@
     flex-direction: column;
     gap: 4px;
   }
-  
+
   .ai-controls {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .ai-btn {
     width: 100%;
   }
-  
+
   .ai-suggestion-banner {
     flex-direction: column;
     align-items: stretch;
   }
-  
+
   .ai-confirm-btn {
     width: 100%;
   }
@@ -1259,7 +1282,9 @@
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .error-message {
