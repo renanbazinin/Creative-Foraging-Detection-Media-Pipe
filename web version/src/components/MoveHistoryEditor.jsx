@@ -960,28 +960,56 @@ function MoveHistoryEditor({ sessionGameId }) {
 
     setConfirmingAll(true);
     setConfirmProgress({ current: 0, total: movesToConfirm.length });
-    let confirmedCount = 0;
 
-    // Process in batches to avoid freezing UI completely
-    for (const { moveId, player } of movesToConfirm) {
-      try {
-        await handlePlayerUpdate(moveId, player);
-        // Remove suggestion after confirmation
-        setColorSuggestions(prev => {
-          const updated = { ...prev };
-          delete updated[moveId];
-          return updated;
-        });
-        confirmedCount++;
-        setConfirmProgress(prev => ({ ...prev, current: prev.current + 1 }));
-      } catch (err) {
-        console.error(`Failed to confirm move ${moveId}:`, err);
+    try {
+      // Use new bulk update endpoint
+      const response = await fetch(
+        `${API_BASE_URL}/sessions/${encodeURIComponent(sessionGameId)}/moves/update-players-batch`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-admin-password': password
+          },
+          body: JSON.stringify({ updates: movesToConfirm })
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`Failed to update players (${response.status})`);
       }
-    }
 
-    setConfirmingAll(false);
-    setConfirmProgress({ current: 0, total: 0 });
-    alert(`Successfully confirmed ${confirmedCount} moves.`);
+      const result = await response.json();
+      console.log('[MoveHistoryEditor] Bulk update success:', result);
+
+      // Update local state
+      setSession(prev => {
+        if (!prev) return prev;
+        const newMoves = prev.moves.map(move => {
+          const update = movesToConfirm.find(u => u.moveId === move._id);
+          return update ? { ...move, player: update.player } : move;
+        });
+        return { ...prev, moves: newMoves };
+      });
+
+      // Clear suggestions for updated moves
+      setColorSuggestions(prev => {
+        const updated = { ...prev };
+        movesToConfirm.forEach(({ moveId }) => {
+          delete updated[moveId];
+        });
+        return updated;
+      });
+
+      alert(`Successfully confirmed ${movesToConfirm.length} moves.`);
+
+    } catch (err) {
+      console.error('Failed to confirm moves:', err);
+      alert('Failed to confirm moves: ' + err.message);
+    } finally {
+      setConfirmingAll(false);
+      setConfirmProgress({ current: 0, total: 0 });
+    }
   };
 
   if (loading) {
