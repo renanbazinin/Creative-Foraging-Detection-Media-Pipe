@@ -38,6 +38,7 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [selectedMove, setSelectedMove] = useState(null);
   const [expandedImage, setExpandedImage] = useState(null);
   const [filterPhase, setFilterPhase] = useState('all');
+  const [filterPlayer, setFilterPlayer] = useState('all');
   const [password, setPassword] = useState('');
 
   // AI identification state
@@ -904,8 +905,21 @@ function MoveHistoryEditor({ sessionGameId }) {
   };
 
   const filteredMoves = session?.moves?.filter(move => {
-    if (filterPhase === 'all') return true;
-    return move.phase === filterPhase;
+    let matchesPhase = true;
+    if (filterPhase !== 'all') {
+      matchesPhase = move.phase === filterPhase;
+    }
+
+    let matchesPlayer = true;
+    if (filterPlayer !== 'all') {
+      if (filterPlayer === 'None') {
+        matchesPlayer = !move.player || move.player === 'None' || move.player === 'Unknown';
+      } else {
+        matchesPlayer = move.player === filterPlayer;
+      }
+    }
+
+    return matchesPhase && matchesPlayer;
   }) || [];
 
   const getSortedMoves = () => {
@@ -1042,6 +1056,8 @@ function MoveHistoryEditor({ sessionGameId }) {
 
   const practiceCount = session.moves?.filter(m => m.phase === 'practice').length || 0;
   const experimentCount = session.moves?.filter(m => m.phase === 'experiment').length || 0;
+  const playerACount = session.moves?.filter(m => m.player === 'Player A').length || 0;
+  const playerBCount = session.moves?.filter(m => m.player === 'Player B').length || 0;
 
 
   return (
@@ -1056,6 +1072,10 @@ function MoveHistoryEditor({ sessionGameId }) {
             <span className="session-id">Session: {sessionGameId}</span>
             <span className="session-meta">Participant: {session.subjectId}</span>
             <span className="session-meta">Condition: {session.condition}</span>
+          </div>
+          <div className="player-stats" style={{ marginTop: '5px', fontSize: '0.9em' }}>
+            <span style={{ marginRight: '15px', color: colorA, fontWeight: 'bold' }}>Player A: {playerACount}</span>
+            <span style={{ color: colorB, fontWeight: 'bold' }}>Player B: {playerBCount}</span>
           </div>
         </div>
         <div className="phase-filter">
@@ -1076,6 +1096,34 @@ function MoveHistoryEditor({ sessionGameId }) {
             onClick={() => setFilterPhase('experiment')}
           >
             Experiment ({experimentCount})
+          </button>
+        </div>
+        <div className="phase-filter" style={{ marginTop: '10px' }}>
+          <button
+            className={`filter-btn ${filterPlayer === 'all' ? 'active' : ''}`}
+            onClick={() => setFilterPlayer('all')}
+          >
+            All Players
+          </button>
+          <button
+            className={`filter-btn ${filterPlayer === 'Player A' ? 'active' : ''}`}
+            onClick={() => setFilterPlayer('Player A')}
+            style={{ borderColor: colorA, color: filterPlayer === 'Player A' ? 'white' : colorA, backgroundColor: filterPlayer === 'Player A' ? colorA : 'transparent' }}
+          >
+            Player A
+          </button>
+          <button
+            className={`filter-btn ${filterPlayer === 'Player B' ? 'active' : ''}`}
+            onClick={() => setFilterPlayer('Player B')}
+            style={{ borderColor: colorB, color: filterPlayer === 'Player B' ? 'white' : colorB, backgroundColor: filterPlayer === 'Player B' ? colorB : 'transparent' }}
+          >
+            Player B
+          </button>
+          <button
+            className={`filter-btn ${filterPlayer === 'None' ? 'active' : ''}`}
+            onClick={() => setFilterPlayer('None')}
+          >
+            None/Unknown
           </button>
         </div>
 
