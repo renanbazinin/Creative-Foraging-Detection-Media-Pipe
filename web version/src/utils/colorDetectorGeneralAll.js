@@ -1,11 +1,4 @@
-import { FilesetResolver, ImageSegmenter } from '@mediapipe/tasks-vision';
-// Import the local model file URL (Vite syntax)
-import multiclassModelUrl from './selfie_multiclass_256x256.tflite?url';
-
-// Use the local model if available, otherwise fall back to CDN
-const MULTICLASS_MODEL_URL = multiclassModelUrl || 'https://storage.googleapis.com/mediapipe-models/image_segmenter/selfie_multiclass_256x256/float32/latest/selfie_multiclass_256x256.tflite';
-
-// ===== HELPER FUNCTIONS (Copied from colorDetector.js) =====
+// ===== HELPER FUNCTIONS =====
 
 const loadImageElement = (source) => new Promise((resolve, reject) => {
     if (!source || typeof source !== 'string') {
@@ -22,72 +15,6 @@ const loadImageElement = (source) => new Promise((resolve, reject) => {
         img.src = `data:image/jpeg;base64,${source}`;
     }
 });
-
-const extractCategoryMaskData = (categoryMask, fallbackWidth, fallbackHeight) => {
-    if (!categoryMask) {
-        return {
-            maskData: null,
-            maskWidth: fallbackWidth,
-            maskHeight: fallbackHeight,
-            isRGBA: false
-        };
-    }
-
-    let maskData = null;
-    let maskWidth = fallbackWidth;
-    let maskHeight = fallbackHeight;
-    let isRGBA = false;
-
-    try {
-        if (typeof categoryMask.getAsUint8Array === 'function') {
-            maskData = categoryMask.getAsUint8Array();
-            maskWidth = categoryMask.width || fallbackWidth;
-            maskHeight = categoryMask.height || fallbackHeight;
-            return { maskData, maskWidth, maskHeight, isRGBA: false };
-        }
-
-        if (categoryMask instanceof Uint8Array || categoryMask instanceof Uint8ClampedArray) {
-            maskData = categoryMask;
-            return { maskData, maskWidth, maskHeight, isRGBA: false };
-        }
-
-        if (categoryMask.canvas) {
-            const canvas = categoryMask.canvas;
-            maskWidth = canvas.width;
-            maskHeight = canvas.height;
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            const imageData = ctx.getImageData(0, 0, maskWidth, maskHeight);
-            maskData = imageData.data;
-            isRGBA = true;
-            return { maskData, maskWidth, maskHeight, isRGBA };
-        }
-
-        if (categoryMask instanceof ImageData) {
-            maskData = categoryMask.data;
-            maskWidth = categoryMask.width || fallbackWidth;
-            maskHeight = categoryMask.height || fallbackHeight;
-            isRGBA = true;
-            return { maskData, maskWidth, maskHeight, isRGBA };
-        }
-
-        if (categoryMask.data) {
-            maskData = categoryMask.data;
-            maskWidth = categoryMask.width || fallbackWidth;
-            maskHeight = categoryMask.height || fallbackHeight;
-            isRGBA = maskData.length >= maskWidth * maskHeight * 4;
-            return { maskData, maskWidth, maskHeight, isRGBA };
-        }
-    } catch (err) {
-        console.warn('[ColorDetectorGeneral] Failed to extract category mask data:', err);
-    }
-
-    return {
-        maskData: null,
-        maskWidth: fallbackWidth,
-        maskHeight: fallbackHeight,
-        isRGBA: false
-    };
-};
 
 const euclideanDistance = (a = [], b = []) => {
     return Math.sqrt(a.reduce((sum, val, idx) => sum + Math.pow(val - (b[idx] || 0), 2), 0));
@@ -198,54 +125,103 @@ const rgbToHex = (r, g, b) => {
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 };
 
-let imageSegmenterInstance = null;
+/**
+ * Enforce 10%-90% ratio constraint on k-means results.
+ * If one cluster has < 10% of samples, rebalance assignments based on distance thresholds.
+ * 
+ * @param {Array} points - Feature points
+ * @param {Array} assignments - Current cluster assignments
+ * @param {Array} centroids - Current centroids
+ * @returns {Array} - Adjusted assignments
+ */
+const enforceRatioConstraint = (points, assignments, centroids) => {
+    const minRatio = 0.10; // 10% minimum
+    const maxRatio = 0.90; // 90% maximum
+    const totalPoints = points.length;
 
-const getImageSegmenter = async () => {
-    if (typeof window === 'undefined') {
-        throw new Error('Image segmenter is only available in the browser');
+    // Count current distribution
+    const counts = [0, 0];
+    assignments.forEach((cluster) => {
+        counts[cluster] += 1;
+    });
+
+    const ratio0 = counts[0] / totalPoints;
+    const ratio1 = counts[1] / totalPoints;
+
+    // Check if constraint is violated
+    if (ratio0 < minRatio || ratio0 > maxRatio || ratio1 < minRatio || ratio1 > maxRatio) {
+        console.log(`[ColorDetectorGeneralAll] Ratio constraint violated: ${(ratio0 * 100).toFixed(1)}% vs ${(ratio1 * 100).toFixed(1)}%`);
+
+        // Calculate distances for each point to both centroids
+        const distances = points.map((point, idx) => ({
+            idx,
+            dist0: euclideanDistance(point, centroids[0]),
+            dist1: euclideanDistance(point, centroids[1]),
+            currentCluster: assignments[idx]
+        }));
+
+        // Sort by distance difference (most ambiguous first)
+        distances.sort((a, b) => Math.abs(a.dist0 - a.dist1) - Math.abs(b.dist0 - b.dist1));
+
+        // Reset assignments to aim for 50-50 split
+        const newAssignments = [...assignments];
+        const targetCount = Math.floor(totalPoints * 0.5);
+
+        // Reset counts
+        let newCounts = [0, 0];
+
+        // Reassign based on closest centroid, but enforce min ratio
+        for (const d of distances) {
+            const preferredCluster = d.dist0 < d.dist1 ? 0 : 1;
+            const otherCluster = 1 - preferredCluster;
+
+            // Check if we can assign to preferred cluster without violating max ratio
+            if (newCounts[preferredCluster] < Math.floor(totalPoints * maxRatio)) {
+                newAssignments[d.idx] = preferredCluster;
+                newCounts[preferredCluster] += 1;
+            } else {
+                // Force to other cluster
+                newAssignments[d.idx] = otherCluster;
+                newCounts[otherCluster] += 1;
+            }
+        }
+
+        const newRatio0 = newCounts[0] / totalPoints;
+        const newRatio1 = newCounts[1] / totalPoints;
+        console.log(`[ColorDetectorGeneralAll] Adjusted ratio: ${(newRatio0 * 100).toFixed(1)}% vs ${(newRatio1 * 100).toFixed(1)}%`);
+
+        return newAssignments;
     }
-    if (!imageSegmenterInstance) {
-        const vision = await FilesetResolver.forVisionTasks(
-            'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm'
-        );
-        imageSegmenterInstance = await ImageSegmenter.createFromOptions(vision, {
-            baseOptions: {
-                modelAssetPath: MULTICLASS_MODEL_URL,
-                delegate: 'GPU'
-            },
-            outputCategoryMask: true,
-            outputConfidenceMasks: false,
-            runningMode: 'IMAGE'
-        });
-    }
-    return imageSegmenterInstance;
+
+    return assignments;
 };
 
-// ===== MAIN FUNCTION: identifyPlayersByAllAll =====
+// ===== MAIN FUNCTION: identifyPlayersByGeneralAll =====
 
 /**
- * Identify players by analyzing all pixels (excluding background class 0).
- * If manualBounds is provided, only sample pixels within that Y range.
+ * Identify players by analyzing ALL pixels in the image (NO MediaPipe filtering for bottom/top).
+ * For 'manually' anchor, only use pixels within the bounded area.
+ * Enforces 10%-90% ratio constraint on the clustering results.
  * 
  * @param {Array} frames - Array of frame objects: [{ moveId, frameDataUrl, existingPlayer }]
  * @param {Object} options - Configuration options
- * @param {Object} options.manualBounds - Optional { topY, bottomY } to restrict sampling area
+ * @param {Object} options.manualBounds - Optional { topY, bottomY } to restrict sampling area (for 'manually' mode)
+ * @param {String} options.anchor - 'bottom', 'top', or 'manually'
  * @param {Number} options.maxFrames - Maximum number of frames to process
  * @param {Number} options.stride - Pixel stride for sampling (default: 2)
  * @param {Number} options.minPixels - Minimum pixels required per frame (default: 80)
  * @returns {Object} - { assignments, clusters, analytics }
  */
-const identifyPlayersByAllAll = async (frames = [], options = {}) => {
+const identifyPlayersByGeneralAll = async (frames = [], options = {}) => {
     if (!Array.isArray(frames) || frames.length === 0) {
         throw new Error('No frames provided for analysis');
     }
 
-    const segmenter = await getImageSegmenter();
     const maxFrames = options.maxFrames || frames.length;
     const stride = options.stride || 2;
-    //const minPixels = options.minPixels || 80;
-    const minPixels = options.minPixels || 20;
+    const minPixels = options.minPixels || 80;
     const manualBounds = options.manualBounds || null;
+    const anchor = options.anchor || 'bottom'; // 'bottom', 'top', or 'manually'
 
     const framesToProcess = frames.slice(0, maxFrames);
     const results = [];
@@ -257,19 +233,6 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             const width = imageElement.naturalWidth || imageElement.width;
             const height = imageElement.naturalHeight || imageElement.height;
 
-            const segmentation = segmenter.segment(imageElement);
-            const {
-                maskData: categoryMaskData,
-                maskWidth,
-                maskHeight,
-                isRGBA: isCategoryMaskRGBA
-            } = extractCategoryMaskData(segmentation.categoryMask, width, height);
-
-            if (!categoryMaskData) {
-                skippedFrames += 1;
-                continue;
-            }
-
             const videoCanvas = document.createElement('canvas');
             videoCanvas.width = width;
             videoCanvas.height = height;
@@ -277,16 +240,17 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             videoCtx.drawImage(imageElement, 0, 0, width, height);
             const videoData = videoCtx.getImageData(0, 0, width, height).data;
 
-            const scaleX = width / maskWidth;
-            const scaleY = height / maskHeight;
-
-            // Determine Y range for sampling
+            // Determine Y range for sampling based on anchor
             let startY = 0;
             let endY = height;
-            if (manualBounds) {
+
+            if (anchor === 'manually' && manualBounds) {
+                // For 'manually' mode, use the bounded area only
                 startY = Math.max(0, manualBounds.topY);
                 endY = Math.min(height, manualBounds.bottomY);
             }
+            // For 'bottom' and 'top', we sample the ENTIRE image (0 to height)
+            // No filtering applied!
 
             let sumR = 0;
             let sumG = 0;
@@ -295,27 +259,20 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             let sumY = 0;
             let pixelCount = 0;
 
-            // Sample pixels, filtering out background (class 0)
+            // Sample ALL pixels in the range (no MediaPipe filtering)
             for (let y = startY; y < endY; y += stride) {
-                const maskY = Math.min(maskHeight - 1, Math.floor(y / scaleY));
                 for (let x = 0; x < width; x += stride) {
-                    const maskX = Math.min(maskWidth - 1, Math.floor(x / scaleX));
-                    const maskIdx = (maskY * maskWidth + maskX) * (isCategoryMaskRGBA ? 4 : 1);
-                    const category = categoryMaskData[maskIdx];
+                    const idx = (y * width + x) * 4;
+                    const r = videoData[idx];
+                    const g = videoData[idx + 1];
+                    const b = videoData[idx + 2];
 
-                    // Filter: exclude background (class 0)
-                    if (category !== 0) {
-                        const idx = (y * width + x) * 4;
-                        const r = videoData[idx];
-                        const g = videoData[idx + 1];
-                        const b = videoData[idx + 2];
-                        sumR += r;
-                        sumG += g;
-                        sumB += b;
-                        sumX += x;
-                        sumY += y;
-                        pixelCount += 1;
-                    }
+                    sumR += r;
+                    sumG += g;
+                    sumB += b;
+                    sumX += x;
+                    sumY += y;
+                    pixelCount += 1;
                 }
             }
 
@@ -330,7 +287,7 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                 b: sumB / pixelCount
             };
 
-            // Generate debug preview showing what MediaPipe sees (all non-background pixels)
+            // Generate debug preview showing ALL pixels (or bounded area)
             let debugPreview = null;
             try {
                 const debugCanvas = document.createElement('canvas');
@@ -341,31 +298,8 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                 // Draw original image
                 debugCtx.drawImage(imageElement, 0, 0, width, height);
 
-                // Overlay non-background pixels in blue with transparency
-                const debugImageData = debugCtx.getImageData(0, 0, width, height);
-                const debugPixels = debugImageData.data;
-
-                for (let y = 0; y < height; y += 1) {
-                    const maskY = Math.min(maskHeight - 1, Math.floor(y / scaleY));
-                    for (let x = 0; x < width; x += 1) {
-                        const maskX = Math.min(maskWidth - 1, Math.floor(x / scaleX));
-                        const maskIdx = (maskY * maskWidth + maskX) * (isCategoryMaskRGBA ? 4 : 1);
-                        const category = categoryMaskData[maskIdx];
-
-                        if (category !== 0) { // Non-background pixels
-                            const idx = (y * width + x) * 4;
-                            // Blue tint for all non-background
-                            debugPixels[idx] = Math.round(debugPixels[idx] * 0.5 + 50); // R
-                            debugPixels[idx + 1] = Math.round(debugPixels[idx + 1] * 0.5 + 100); // G
-                            debugPixels[idx + 2] = Math.round(debugPixels[idx + 2] * 0.5 + 255 * 0.5); // B
-                        }
-                    }
-                }
-
-                debugCtx.putImageData(debugImageData, 0, 0);
-
                 // If manual bounds, draw the scan area boundaries
-                if (manualBounds) {
+                if (anchor === 'manually' && manualBounds) {
                     // Dim area outside bounds
                     debugCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
                     debugCtx.fillRect(0, 0, width, manualBounds.topY); // Top area
@@ -393,6 +327,13 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                     debugCtx.fillStyle = '#00FF00';
                     debugCtx.font = 'bold 16px Arial';
                     debugCtx.fillText(`Manual Scan Area (${scanAreaHeight}px)`, 10, manualBounds.topY - 10);
+                } else {
+                    // For bottom/top, add a label indicating "ALL PIXELS"
+                    debugCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    debugCtx.fillRect(10, height - 40, 200, 30);
+                    debugCtx.fillStyle = '#00FF00';
+                    debugCtx.font = 'bold 14px Arial';
+                    debugCtx.fillText('Processing ALL Pixels', 20, height - 20);
                 }
 
                 // Add info text
@@ -400,13 +341,13 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                 debugCtx.fillRect(10, 10, 300, 80);
                 debugCtx.fillStyle = '#FFFFFF';
                 debugCtx.font = 'bold 14px Arial';
-                debugCtx.fillText(`Non-BG Pixels: ${pixelCount}`, 20, 30);
+                debugCtx.fillText(`Total Pixels: ${pixelCount}`, 20, 30);
                 debugCtx.fillText(`Threshold: ${minPixels}`, 20, 50);
                 debugCtx.fillText(`Mean Color: ${rgbToHex(meanColor.r, meanColor.g, meanColor.b)}`, 20, 70);
 
                 debugPreview = debugCanvas.toDataURL('image/png');
             } catch (previewErr) {
-                console.warn('[ColorDetectorGeneral] Failed to generate debug preview:', previewErr);
+                console.warn('[ColorDetectorGeneralAll] Failed to generate debug preview:', previewErr);
             }
 
             results.push({
@@ -424,7 +365,7 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                 debugPreview // Add debug preview to results
             });
         } catch (err) {
-            console.warn('[ColorDetectorGeneral] Analysis failed for frame', frame.moveId, err);
+            console.warn('[ColorDetectorGeneralAll] Analysis failed for frame', frame.moveId, err);
             skippedFrames += 1;
         }
     }
@@ -434,7 +375,10 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
     }
 
     const features = results.map((r) => r.feature);
-    const { assignments, centroids } = runKMeans(features, Math.min(2, results.length));
+    let { assignments, centroids } = runKMeans(features, Math.min(2, results.length));
+
+    // *** APPLY 10%-90% RATIO CONSTRAINT ***
+    assignments = enforceRatioConstraint(features, assignments, centroids);
 
     const clusterStats = centroids.map(() => ({
         samples: [],
@@ -554,4 +498,4 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
     };
 };
 
-export { identifyPlayersByAllAll };
+export { identifyPlayersByGeneralAll };
