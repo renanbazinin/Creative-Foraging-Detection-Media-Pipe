@@ -14,6 +14,7 @@ import TopDownPlayerClassifierV2 from './components/TopDownPlayerClassifierV2';
 import Admin from './components/Admin';
 import AdminUpload from './components/AdminUpload';
 import MoveHistoryEditor from './components/MoveHistoryEditor';
+import SwipeView from './components/SwipeView';
 import { getGameTracker } from './utils/gameTracker';
 
 // ===== CONFIGURATION =====
@@ -120,8 +121,9 @@ function App() {
   // Route-aware rendering without early returns to keep hooks order stable
   let body = null;
   
-  // Check for dynamic routes first (e.g., /admin/edit-moves/:id)
+  // Check for dynamic routes first (e.g., /admin/edit-moves/:id, /admin/swipe/:id)
   const editMovesMatch = currentRoute.match(/^#\/admin\/edit-moves\/(.+)$/);
+  const swipeViewMatch = currentRoute.match(/^#\/admin\/swipe\/(.+)$/);
   
   if (currentRoute === '#/detector') {
     body = <BraceletDetector />;
@@ -135,6 +137,16 @@ function App() {
     body = <Admin />;
   } else if (currentRoute === '#/admin/upload') {
     body = <AdminUpload />;
+  } else if (swipeViewMatch) {
+    // SwipeView with session ID from route
+    const sessionGameId = decodeURIComponent(swipeViewMatch[1]);
+    body = (
+      <SwipeView
+        key={sessionGameId}
+        sessionGameId={sessionGameId}
+        onClose={() => window.location.hash = `#/admin/edit-moves/${encodeURIComponent(sessionGameId)}`}
+      />
+    );
   } else if (editMovesMatch) {
     // Extract the sessionGameId from the route
     const sessionGameId = decodeURIComponent(editMovesMatch[1]);

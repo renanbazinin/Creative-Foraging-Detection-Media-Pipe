@@ -5,6 +5,7 @@ import { identifyPlayerByColor, identifyPlayerBySegmentation, identifyPlayersByC
 import { identifyPlayersByAllAll } from '../utils/colorDetectorGeneral';
 import ColorPreviewModal from './ColorPreviewModal';
 import ManualScanSelector from './ManualScanSelector';
+import SwipeView from './SwipeView';
 
 const API_BASE_URL = getApiBaseUrl();
 const ADMIN_PASSWORD_KEY = 'adminPassword';
@@ -69,6 +70,9 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [confirmingAll, setConfirmingAll] = useState(false);
   const [confirmProgress, setConfirmProgress] = useState({ current: 0, total: 0 });
   const [confirmingMoveId, setConfirmingMoveId] = useState(null);
+  const [showSwipeView, setShowSwipeView] = useState(false);
+  const [swipeViewFrames, setSwipeViewFrames] = useState([]);
+  const [swipeViewClusterColors, setSwipeViewClusterColors] = useState({});
 
 
   const detectPlayerByColor = useCallback(
@@ -1027,6 +1031,115 @@ function MoveHistoryEditor({ sessionGameId }) {
     }
   };
 
+  // Handler to open SwipeView with frames that need review
+  const handleOpenSwipeView = () => {
+    if (!session || !Array.isArray(session.moves)) return;
+
+    // Prepare cluster colors from analytics if available
+    const clusterColors = {};
+    if (allAllAnalytics?.clusters) {
+      allAllAnalytics.clusters.forEach(cluster => {
+        if (cluster.assignedPlayer && cluster.hexColor) {
+          clusterColors[cluster.assignedPlayer] = cluster.hexColor;
+        }
+      });
+    } else if (clothAnalytics?.clusters) {
+      clothAnalytics.clusters.forEach(cluster => {
+        if (cluster.assignedPlayer && cluster.hexColor) {
+          clusterColors[cluster.assignedPlayer] = cluster.hexColor;
+        }
+      });
+    }
+    // Fallback to configured colors
+    if (!clusterColors['Player A']) clusterColors['Player A'] = colorA;
+    if (!clusterColors['Player B']) clusterColors['Player B'] = colorB;
+
+    // Get frames that need review:
+    // 1. First: frames with suggestions below threshold (not yet confirmed)
+    // 2. Then: frames that are unknown/none
+    const movesWithFrames = session.moves.filter(m => m.camera_frame);
+    
+    // Frames with low confidence suggestions
+    const lowConfidenceFrames = movesWithFrames
+      .filter(m => {
+        const suggestion = colorSuggestions[m._id];
+        if (!suggestion) return false;
+        const confidencePercent = (suggestion.confidence || 0) * 100;
+        return confidencePercent < confirmThreshold;
+      })
+      .map(m => {
+        const suggestion = colorSuggestions[m._id];
+        return {
+          id: m._id,
+          frameUrl: m.camera_frame,
+          player: m.player || 'Unknown',
+          time: m.elapsed,
+          confidence: suggestion?.confidence || null,
+          styleLabel: suggestion?.styleLabel,
+          type: m.type,
+          phase: m.phase,
+          needsReview: true
+        };
+      });
+
+    // Unknown/None frames (not already in low confidence list)
+    const lowConfidenceIds = new Set(lowConfidenceFrames.map(f => f.id));
+    const unknownFrames = movesWithFrames
+      .filter(m => 
+        !lowConfidenceIds.has(m._id) && 
+        (!m.player || m.player === 'Unknown' || m.player === 'None')
+      )
+      .map(m => ({
+        id: m._id,
+        frameUrl: m.camera_frame,
+        player: m.player || 'Unknown',
+        time: m.elapsed,
+        confidence: null,
+        type: m.type,
+        phase: m.phase,
+        needsReview: true
+      }));
+
+    // Combine: low confidence first, then unknowns
+    const framesToReview = [...lowConfidenceFrames, ...unknownFrames];
+
+    if (framesToReview.length === 0) {
+      alert('No frames need review! All frames are either confirmed or have high confidence.');
+      return;
+    }
+
+    setSwipeViewFrames(framesToReview);
+    setSwipeViewClusterColors(clusterColors);
+    setShowSwipeView(true);
+  };
+
+  const handleCloseSwipeView = (result) => {
+    setShowSwipeView(false);
+    
+    // Remove suggestions for frames that were labeled (not skipped)
+    if (result?.labeledIds && result.labeledIds.length > 0) {
+      setColorSuggestions(prev => {
+        const updated = { ...prev };
+        result.labeledIds.forEach(id => {
+          delete updated[id];
+        });
+        return updated;
+      });
+      
+      // Also remove AI suggestions if any
+      setAiSuggestions(prev => {
+        const updated = { ...prev };
+        result.labeledIds.forEach(id => {
+          delete updated[id];
+        });
+        return updated;
+      });
+    }
+    
+    // Reload session to get updated player assignments
+    loadSession();
+  };
+
   if (loading) {
     return (
       <div className="move-editor-container">
@@ -1206,6 +1319,41 @@ function MoveHistoryEditor({ sessionGameId }) {
               disabled={allAllProcessing}
             >
               {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All Unknown'}
+            </button>
+            <button
+              onClick={handleOpenSwipeView}
+              style={{
+                background: 'linear-gradient(135deg, #9C27B0, #673AB7)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '8px',
+                padding: '8px 16px',
+                cursor: 'pointer',
+                fontSize: '14px',
+                fontWeight: 'bold',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                boxShadow: '0 2px 8px rgba(156, 39, 176, 0.3)'
+              }}
+              title="Open Swipe View to review frames"
+            >
+              👆 Swipe View ({(() => {
+                // Count unique frames needing review: unknown/none OR has unconfirmed suggestion
+                const unknownIds = new Set(
+                  (session?.moves || [])
+                    .filter(m => m.camera_frame && (!m.player || m.player === 'Unknown' || m.player === 'None'))
+                    .map(m => m._id)
+                );
+                const suggestionIds = new Set(
+                  Object.entries(colorSuggestions)
+                    .filter(([, s]) => (s.confidence || 0) * 100 < confirmThreshold)
+                    .map(([id]) => id)
+                );
+                // Merge both sets
+                suggestionIds.forEach(id => unknownIds.add(id));
+                return unknownIds.size;
+              })()})
             </button>
             <div className="color-anchor-toggle" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
 
@@ -1412,6 +1560,27 @@ function MoveHistoryEditor({ sessionGameId }) {
                     <option value="confidenceAsc">Confidence (Low to High)</option>
                   </select>
                 </div>
+
+                <button
+                  onClick={handleOpenSwipeView}
+                  style={{
+                    background: 'linear-gradient(135deg, #9C27B0, #673AB7)',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    padding: '8px 16px',
+                    cursor: 'pointer',
+                    fontSize: '14px',
+                    fontWeight: 'bold',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    boxShadow: '0 2px 8px rgba(156, 39, 176, 0.3)'
+                  }}
+                  title="Open Swipe View to review unconfirmed frames"
+                >
+                  👆 Review Unconfirmed
+                </button>
               </div>
             </div>
             <div className="cloth-style-grid">
@@ -1722,6 +1891,16 @@ function MoveHistoryEditor({ sessionGameId }) {
           />
         )
       }
+
+      {/* SwipeView Modal */}
+      {showSwipeView && (
+        <SwipeView
+          sessionGameId={sessionGameId}
+          onClose={handleCloseSwipeView}
+          initialFrames={swipeViewFrames}
+          clusterColors={swipeViewClusterColors}
+        />
+      )}
     </div >
   );
 }
