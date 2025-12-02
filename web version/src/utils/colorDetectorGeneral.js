@@ -132,6 +132,15 @@ const rgbToHex = (r, g, b) => {
     return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
 };
 
+const hexToRgb = (hex) => {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? {
+        r: parseInt(result[1], 16),
+        g: parseInt(result[2], 16),
+        b: parseInt(result[3], 16)
+    } : null;
+};
+
 let imageSegmenterInstance = null;
 
 const getImageSegmenter = async () => {
@@ -167,6 +176,7 @@ const getImageSegmenter = async () => {
  * @param {Number} options.maxFrames - Maximum number of frames to process
  * @param {Number} options.stride - Pixel stride for sampling (default: 2)
  * @param {Number} options.minPixels - Minimum pixels required per frame (default: 80)
+ * @param {Object} options.playerColors - Optional { 'Player A': hex, 'Player B': hex } for calibration matching
  * @returns {Object} - { assignments, clusters, analytics }
  */
 const identifyPlayersByAllAll = async (frames = [], options = {}) => {
@@ -180,6 +190,7 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
     //const minPixels = options.minPixels || 80;
     const minPixels = options.minPixels || 5;
     const manualBounds = options.manualBounds || null;
+    const playerColors = options.playerColors || null;
 
     // NEW: Sensitivity Threshold
     // 0.5 = Standard
@@ -455,14 +466,70 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
     });
 
     const clusterPlayerMap = {};
+
+    // STRATEGY 1: Use provided player colors (Calibration)
+    if (playerColors && playerColors['Player A'] && playerColors['Player B']) {
+        const colorA = hexToRgb(playerColors['Player A']);
+        const colorB = hexToRgb(playerColors['Player B']);
+
+        if (colorA && colorB) {
+            // Calculate distances for each cluster to each player color
+            const costs = clusterStats.map((stats, idx) => {
+                const avgR = stats.sumR / Math.max(1, stats.samples.length);
+                const avgG = stats.sumG / Math.max(1, stats.samples.length);
+                const avgB = stats.sumB / Math.max(1, stats.samples.length);
+                const clusterColor = [avgR, avgG, avgB];
+
+                return {
+                    idx,
+                    distA: euclideanDistance(clusterColor, [colorA.r, colorA.g, colorA.b]),
+                    distB: euclideanDistance(clusterColor, [colorB.r, colorB.g, colorB.b])
+                };
+            });
+
+            // If we have 2 clusters, assign optimally
+            if (costs.length === 2) {
+                const c1 = costs[0];
+                const c2 = costs[1];
+
+                // Option 1: C1 is A, C2 is B
+                const totalDist1 = c1.distA + c2.distB;
+                // Option 2: C1 is B, C2 is A
+                const totalDist2 = c1.distB + c2.distA;
+
+                if (totalDist1 < totalDist2) {
+                    clusterPlayerMap[c1.idx] = 'Player A';
+                    clusterPlayerMap[c2.idx] = 'Player B';
+                } else {
+                    clusterPlayerMap[c1.idx] = 'Player B';
+                    clusterPlayerMap[c2.idx] = 'Player A';
+                }
+            } else {
+                // If more or less than 2, just assign each to closest
+                costs.forEach(c => {
+                    if (c.distA < c.distB) {
+                        clusterPlayerMap[c.idx] = 'Player A';
+                    } else {
+                        clusterPlayerMap[c.idx] = 'Player B';
+                    }
+                });
+            }
+        }
+    }
+
+    // STRATEGY 2: Use existing labels (Majority Vote)
+    // Only fill in if not already assigned by Strategy 1
     clusterStats.forEach((stats, idx) => {
+        if (clusterPlayerMap[idx]) return;
+
         const a = stats.labelCounts['Player A'];
         const b = stats.labelCounts['Player B'];
         if (a > b) clusterPlayerMap[idx] = 'Player A';
         else if (b > a) clusterPlayerMap[idx] = 'Player B';
     });
 
-    // Assign remaining clusters deterministically by hue order
+    // STRATEGY 3: Hue/Brightness Sort (Fallback)
+    // Assign remaining clusters deterministically
     const hueOrder = clusterStats
         .map((stats, idx) => {
             const avgR = stats.sumR / Math.max(1, stats.samples.length);

@@ -787,7 +787,8 @@ function MoveHistoryEditor({ sessionGameId }) {
           maxFrames: movesWithFrames.length,
           stride: 2,
           minPixels: 80,
-          manualBounds: colorAnchor === 'manually' ? manualScanBounds : null
+          manualBounds: colorAnchor === 'manually' ? manualScanBounds : null,
+          playerColors: { 'Player A': colorA, 'Player B': colorB }
         });
 
         if (result?.analytics) {
