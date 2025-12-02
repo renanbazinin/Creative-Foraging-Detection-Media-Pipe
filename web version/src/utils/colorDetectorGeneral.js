@@ -23,72 +23,6 @@ const loadImageElement = (source) => new Promise((resolve, reject) => {
     }
 });
 
-const extractCategoryMaskData = (categoryMask, fallbackWidth, fallbackHeight) => {
-    if (!categoryMask) {
-        return {
-            maskData: null,
-            maskWidth: fallbackWidth,
-            maskHeight: fallbackHeight,
-            isRGBA: false
-        };
-    }
-
-    let maskData = null;
-    let maskWidth = fallbackWidth;
-    let maskHeight = fallbackHeight;
-    let isRGBA = false;
-
-    try {
-        if (typeof categoryMask.getAsUint8Array === 'function') {
-            maskData = categoryMask.getAsUint8Array();
-            maskWidth = categoryMask.width || fallbackWidth;
-            maskHeight = categoryMask.height || fallbackHeight;
-            return { maskData, maskWidth, maskHeight, isRGBA: false };
-        }
-
-        if (categoryMask instanceof Uint8Array || categoryMask instanceof Uint8ClampedArray) {
-            maskData = categoryMask;
-            return { maskData, maskWidth, maskHeight, isRGBA: false };
-        }
-
-        if (categoryMask.canvas) {
-            const canvas = categoryMask.canvas;
-            maskWidth = canvas.width;
-            maskHeight = canvas.height;
-            const ctx = canvas.getContext('2d', { willReadFrequently: true });
-            const imageData = ctx.getImageData(0, 0, maskWidth, maskHeight);
-            maskData = imageData.data;
-            isRGBA = true;
-            return { maskData, maskWidth, maskHeight, isRGBA };
-        }
-
-        if (categoryMask instanceof ImageData) {
-            maskData = categoryMask.data;
-            maskWidth = categoryMask.width || fallbackWidth;
-            maskHeight = categoryMask.height || fallbackHeight;
-            isRGBA = true;
-            return { maskData, maskWidth, maskHeight, isRGBA };
-        }
-
-        if (categoryMask.data) {
-            maskData = categoryMask.data;
-            maskWidth = categoryMask.width || fallbackWidth;
-            maskHeight = categoryMask.height || fallbackHeight;
-            isRGBA = maskData.length >= maskWidth * maskHeight * 4;
-            return { maskData, maskWidth, maskHeight, isRGBA };
-        }
-    } catch (err) {
-        console.warn('[ColorDetectorGeneral] Failed to extract category mask data:', err);
-    }
-
-    return {
-        maskData: null,
-        maskWidth: fallbackWidth,
-        maskHeight: fallbackHeight,
-        isRGBA: false
-    };
-};
-
 const euclideanDistance = (a = [], b = []) => {
     return Math.sqrt(a.reduce((sum, val, idx) => sum + Math.pow(val - (b[idx] || 0), 2), 0));
 };
@@ -213,8 +147,8 @@ const getImageSegmenter = async () => {
                 modelAssetPath: MULTICLASS_MODEL_URL,
                 delegate: 'GPU'
             },
-            outputCategoryMask: true,
-            outputConfidenceMasks: false,
+            outputCategoryMask: false,
+            outputConfidenceMasks: true,
             runningMode: 'IMAGE'
         });
     }
@@ -247,6 +181,12 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
     const minPixels = options.minPixels || 5;
     const manualBounds = options.manualBounds || null;
 
+    // NEW: Sensitivity Threshold
+    // 0.5 = Standard
+    // 0.8 = Very Sensitive (Includes pixels even if model thinks they are likely background)
+    // 0.95 = Extremely Sensitive (Almost everything except pure green screen is included)
+    const backgroundThreshold = options.sensitivity || 0.8;
+
     const framesToProcess = frames.slice(0, maxFrames);
     const results = [];
     let skippedFrames = 0;
@@ -258,17 +198,16 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             const height = imageElement.naturalHeight || imageElement.height;
 
             const segmentation = segmenter.segment(imageElement);
-            const {
-                maskData: categoryMaskData,
-                maskWidth,
-                maskHeight,
-                isRGBA: isCategoryMaskRGBA
-            } = extractCategoryMaskData(segmentation.categoryMask, width, height);
 
-            if (!categoryMaskData) {
-                skippedFrames += 1;
-                continue;
-            }
+            // --- NEW: Handle Confidence Masks ---
+            // Index 0 is always Background in this model
+            const bgMaskFloatArray = segmentation.confidenceMasks[0].getAsFloat32Array();
+
+            // Confidence masks are usually the size of the model output (e.g., 256x256)
+            // We need to know the mask dimensions to map them to the image
+            const maskWidth = segmentation.confidenceMasks[0].width;
+            const maskHeight = segmentation.confidenceMasks[0].height;
+            // ------------------------------------
 
             const videoCanvas = document.createElement('canvas');
             videoCanvas.width = width;
@@ -328,11 +267,14 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                     }
 
                     const maskX = Math.min(maskWidth - 1, Math.floor(x / scaleX));
-                    const maskIdx = (maskY * maskWidth + maskX) * (isCategoryMaskRGBA ? 4 : 1);
-                    const category = categoryMaskData[maskIdx];
 
-                    // Filter: exclude background (class 0)
-                    if (category !== 0) {
+                    // --- NEW: Check Probability instead of Class Index ---
+                    const maskIdx = maskY * maskWidth + maskX;
+                    const bgConfidence = bgMaskFloatArray[maskIdx];
+
+                    // If the model's confidence that this is background is LOWER 
+                    // than our threshold, we consider it a Player/Foreground.
+                    if (bgConfidence < backgroundThreshold) {
                         const idx = (y * width + x) * 4;
                         const r = videoData[idx];
                         const g = videoData[idx + 1];
@@ -377,15 +319,17 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                     const maskY = Math.min(maskHeight - 1, Math.floor(y / scaleY));
                     for (let x = 0; x < width; x += 1) {
                         const maskX = Math.min(maskWidth - 1, Math.floor(x / scaleX));
-                        const maskIdx = (maskY * maskWidth + maskX) * (isCategoryMaskRGBA ? 4 : 1);
-                        const category = categoryMaskData[maskIdx];
+                        const maskIdx = maskY * maskWidth + maskX;
 
-                        if (category !== 0) { // Non-background pixels
+                        // Check confidence for visual debug
+                        const bgConfidence = bgMaskFloatArray[maskIdx];
+
+                        if (bgConfidence < backgroundThreshold) {
                             const idx = (y * width + x) * 4;
-                            // Blue tint for all non-background
-                            debugPixels[idx] = Math.round(debugPixels[idx] * 0.5 + 50); // R
-                            debugPixels[idx + 1] = Math.round(debugPixels[idx + 1] * 0.5 + 100); // G
-                            debugPixels[idx + 2] = Math.round(debugPixels[idx + 2] * 0.5 + 255 * 0.5); // B
+                            // Red tint to show what we captured
+                            debugPixels[idx] = Math.min(255, debugPixels[idx] + 50);
+                            debugPixels[idx + 1] = Math.max(0, debugPixels[idx + 1] - 20);
+                            debugPixels[idx + 2] = Math.max(0, debugPixels[idx + 2] - 20);
                         }
                     }
                 }
