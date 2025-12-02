@@ -12,6 +12,7 @@ import BraceletDetector2 from './components/BraceletDetector2';
 import TopDownPlayerClassifier from './components/TopDownPlayerClassifier';
 import TopDownPlayerClassifierV2 from './components/TopDownPlayerClassifierV2';
 import Admin from './components/Admin';
+import AdminUpload from './components/AdminUpload';
 import MoveHistoryEditor from './components/MoveHistoryEditor';
 import { getGameTracker } from './utils/gameTracker';
 
@@ -132,6 +133,8 @@ function App() {
     body = <Summary />;
   } else if (currentRoute === '#/admin') {
     body = <Admin />;
+  } else if (currentRoute === '#/admin/upload') {
+    body = <AdminUpload />;
   } else if (editMovesMatch) {
     // Extract the sessionGameId from the route
     const sessionGameId = decodeURIComponent(editMovesMatch[1]);
