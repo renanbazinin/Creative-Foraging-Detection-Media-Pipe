@@ -5,6 +5,46 @@ import './SwipeView.css';
 const API_BASE_URL = getApiBaseUrl();
 const ADMIN_PASSWORD_KEY = 'adminPassword';
 
+// Helper function to convert HSV calibration to Hex color
+const hsvToHex = (calib) => {
+  if (!calib || typeof calib.h === 'undefined') return null;
+
+  const h = (calib.h || 0) * 2; // Convert 0-180 to 0-360
+  const s = (calib.s || 0) / 255; // Convert 0-255 to 0-1
+  const v = (calib.v || 0) / 255; // Convert 0-255 to 0-1
+
+  const c = v * s;
+  const x = c * (1 - Math.abs(((h / 60) % 2) - 1));
+  const m = v - c;
+
+  let r = 0, g = 0, b = 0;
+  if (h >= 0 && h < 60) { r = c; g = x; b = 0; }
+  else if (h < 120) { r = x; g = c; b = 0; }
+  else if (h < 180) { r = 0; g = c; b = x; }
+  else if (h < 240) { r = 0; g = x; b = c; }
+  else if (h < 300) { r = x; g = 0; b = c; }
+  else { r = c; g = 0; b = x; }
+
+  const toHex = (val) => {
+    const hex = Math.round((val + m) * 255).toString(16);
+    return hex.length === 1 ? '0' + hex : hex;
+  };
+
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
+};
+
+// Helper to darken a hex color for gradient
+const darkenHex = (hex, factor = 0.3) => {
+  if (!hex || !hex.startsWith('#')) return '#0f0f23';
+  const r = parseInt(hex.slice(1, 3), 16);
+  const g = parseInt(hex.slice(3, 5), 16);
+  const b = parseInt(hex.slice(5, 7), 16);
+  const dr = Math.round(r * factor);
+  const dg = Math.round(g * factor);
+  const db = Math.round(b * factor);
+  return `#${dr.toString(16).padStart(2, '0')}${dg.toString(16).padStart(2, '0')}${db.toString(16).padStart(2, '0')}`;
+};
+
 function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors = {} }) {
   const [frames, setFrames] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0);
@@ -20,12 +60,13 @@ function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors =
   const [decisions, setDecisions] = useState([]); // Store all decisions: { moveId, player }
   const [saving, setSaving] = useState(false); // Track batch save in progress
   const [saveError, setSaveError] = useState(null); // Track batch save error
+  const [calibrationColors, setCalibrationColors] = useState({ colorA: null, colorB: null });
   
   const cardRef = useRef(null);
   const startPos = useRef({ x: 0, y: 0 });
   const containerRef = useRef(null);
 
-  // Get cluster color for a player
+  // Get cluster color for a player (k-means detected colors)
   const getClusterColor = (player) => {
     if (clusterColors[player]) return clusterColors[player];
     if (player === 'Player A') return '#FF5722'; // Orange-red
@@ -33,13 +74,37 @@ function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors =
     return '#9E9E9E'; // Gray for none
   };
 
-  // Load password from localStorage
+  // Load password and calibration colors from localStorage
   useEffect(() => {
     const savedPassword = localStorage.getItem(ADMIN_PASSWORD_KEY);
     if (savedPassword) {
       setPassword(savedPassword);
     }
+
+    // Load calibration colors from localStorage (bracelet detector)
+    try {
+      const calibA = JSON.parse(localStorage.getItem('calibrationA') || 'null');
+      const calibB = JSON.parse(localStorage.getItem('calibrationB') || 'null');
+      const colorA = hsvToHex(calibA);
+      const colorB = hsvToHex(calibB);
+      setCalibrationColors({ colorA, colorB });
+      console.log('[SwipeView] 🎨 Loaded calibration colors:', { colorA, colorB });
+    } catch (err) {
+      console.warn('[SwipeView] Error loading calibration colors:', err);
+    }
   }, []);
+
+  // Compute background gradient based on calibration colors
+  const getBackgroundStyle = () => {
+    const colorA = calibrationColors.colorA || clusterColors['Player A'] || '#FF5722';
+    const colorB = calibrationColors.colorB || clusterColors['Player B'] || '#2196F3';
+    const darkA = darkenHex(colorA, 0.15);
+    const darkB = darkenHex(colorB, 0.15);
+    const darkCenter = '#0f0f23';
+    return {
+      background: `linear-gradient(135deg, ${darkA} 0%, ${darkCenter} 50%, ${darkB} 100%)`
+    };
+  };
 
   // Initialize frames from props or load from API
   useEffect(() => {
@@ -316,7 +381,7 @@ function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors =
 
   if (loading) {
     return (
-      <div className="swipe-view-container">
+      <div className="swipe-view-container" style={getBackgroundStyle()}>
         <div className="swipe-view-loading">
           <div className="loading-spinner"></div>
           <p>Loading frames...</p>
@@ -327,7 +392,7 @@ function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors =
 
   if (error) {
     return (
-      <div className="swipe-view-container">
+      <div className="swipe-view-container" style={getBackgroundStyle()}>
         <div className="swipe-view-error">
           <h2>Error</h2>
           <p>{error}</p>
@@ -339,7 +404,7 @@ function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors =
 
   if (frames.length === 0) {
     return (
-      <div className="swipe-view-container">
+      <div className="swipe-view-container" style={getBackgroundStyle()}>
         <div className="swipe-view-empty">
           <h2>🎉 All Done!</h2>
           <p>No frames need review.</p>
@@ -350,7 +415,7 @@ function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors =
   }
 
   return (
-    <div className="swipe-view-container" ref={containerRef}>
+    <div className="swipe-view-container" ref={containerRef} style={getBackgroundStyle()}>
       {/* Header */}
       <header className="swipe-view-header">
         <button className="close-btn" onClick={handleClose}>✕</button>
@@ -434,7 +499,13 @@ function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors =
             <div 
               className="swipe-arrow left"
               onClick={() => handleSwipe('left')}
-              style={{ backgroundColor: getClusterColor('Player A') }}
+              style={{ 
+                backgroundColor: getClusterColor('Player A'),
+                border: `4px solid ${getClusterColor('Player A')}`,
+                boxShadow: `0 0 0 4px rgba(0,0,0,0.3), 0 4px 20px ${getClusterColor('Player A')}66, inset 0 0 20px rgba(255,255,255,0.1)`,
+                outline: `3px solid ${getClusterColor('Player A')}`,
+                outlineOffset: '2px'
+              }}
             >
               <span className="arrow-icon">←</span>
               <span className="arrow-label">Player A</span>
@@ -521,7 +592,13 @@ function SwipeView({ sessionGameId, onClose, initialFrames = [], clusterColors =
             <div 
               className="swipe-arrow right"
               onClick={() => handleSwipe('right')}
-              style={{ backgroundColor: getClusterColor('Player B') }}
+              style={{ 
+                backgroundColor: getClusterColor('Player B'),
+                border: `4px solid ${getClusterColor('Player B')}`,
+                boxShadow: `0 0 0 4px rgba(0,0,0,0.3), 0 4px 20px ${getClusterColor('Player B')}66, inset 0 0 20px rgba(255,255,255,0.1)`,
+                outline: `3px solid ${getClusterColor('Player B')}`,
+                outlineOffset: '2px'
+              }}
             >
               <span className="arrow-icon">→</span>
               <span className="arrow-label">Player B</span>

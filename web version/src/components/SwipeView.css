@@ -114,15 +114,7 @@
   transform: scale(1.05);
 }
 
-.swipe-arrow.left {
-  background: linear-gradient(135deg, #FF5722, #E64A19);
-  box-shadow: 0 4px 20px rgba(255, 87, 34, 0.4);
-}
-
-.swipe-arrow.right {
-  background: linear-gradient(135deg, #2196F3, #1976D2);
-  box-shadow: 0 4px 20px rgba(33, 150, 243, 0.4);
-}
+/* .swipe-arrow.left and .swipe-arrow.right have styles set dynamically in JS using cluster colors */
 
 .arrow-icon {
   font-size: 32px;
