@@ -1071,8 +1071,20 @@ const identifyPlayersByCloth = async (frames = [], options = {}) => {
 
       // Calculate scan area for percentage-based threshold
       let scanAreaHeight;
+      let rotation = 0;
+      let cosRot = 1;
+      let sinRot = 0;
+      let cx = width / 2;
+      let cy = height / 2;
+
       if (manualBounds) {
         scanAreaHeight = manualBounds.bottomY - manualBounds.topY;
+        rotation = manualBounds.rotation || 0;
+        if (rotation !== 0) {
+          const rad = (-rotation * Math.PI) / 180;
+          cosRot = Math.cos(rad);
+          sinRot = Math.sin(rad);
+        }
       } else {
         scanAreaHeight = height;
       }
@@ -1098,13 +1110,25 @@ const identifyPlayersByCloth = async (frames = [], options = {}) => {
       let pixelCount = 0;
 
       for (let y = 0; y < height; y += stride) {
-        // Skip pixels outside manual bounds if provided
-        if (manualBounds && (y < manualBounds.topY || y > manualBounds.bottomY)) {
+        // Skip pixels outside manual bounds if provided (only if not rotated)
+        if (manualBounds && rotation === 0 && (y < manualBounds.topY || y > manualBounds.bottomY)) {
           continue;
         }
 
         const maskY = Math.min(maskHeight - 1, Math.floor(y / scaleY));
         for (let x = 0; x < width; x += stride) {
+
+          // Check rotated bounds
+          if (manualBounds && rotation !== 0) {
+            const dx = x - cx;
+            const dy = y - cy;
+            const ry = dx * sinRot + dy * cosRot + cy;
+
+            if (ry < manualBounds.topY || ry > manualBounds.bottomY) {
+              continue;
+            }
+          }
+
           const maskX = Math.min(maskWidth - 1, Math.floor(x / scaleX));
           const maskIdx = (maskY * maskWidth + maskX) * (isCategoryMaskRGBA ? 4 : 1);
           const category = categoryMaskData[maskIdx];
@@ -1175,32 +1199,43 @@ const identifyPlayersByCloth = async (frames = [], options = {}) => {
 
         // If manual bounds, draw the scan area boundaries
         if (manualBounds) {
-          // Dim area outside bounds
-          debugCtx.fillStyle = 'rgba(0, 0, 0, 0.5)';
-          debugCtx.fillRect(0, 0, width, manualBounds.topY); // Top area
-          debugCtx.fillRect(0, manualBounds.bottomY, width, height - manualBounds.bottomY); // Bottom area
+          debugCtx.save();
+          if (rotation !== 0) {
+            debugCtx.translate(cx, cy);
+            debugCtx.rotate((rotation * Math.PI) / 180);
+            debugCtx.translate(-cx, -cy);
+          }
+
+          // Dim area outside bounds (approximate for rotation or just draw lines)
+          // For rotation, filling the outside is harder, let's just draw the box and lines
 
           // Draw boundary lines
           debugCtx.strokeStyle = '#00FF00'; // Green = Top
           debugCtx.lineWidth = 3;
           debugCtx.setLineDash([]);
           debugCtx.beginPath();
-          debugCtx.moveTo(0, manualBounds.topY);
-          debugCtx.lineTo(width, manualBounds.topY);
+          debugCtx.moveTo(-width, manualBounds.topY);
+          debugCtx.lineTo(width * 2, manualBounds.topY);
           debugCtx.stroke();
 
           debugCtx.strokeStyle = '#FFFF00'; // Yellow = Bottom
           debugCtx.lineWidth = 3;
           debugCtx.setLineDash([5, 5]);
           debugCtx.beginPath();
-          debugCtx.moveTo(0, manualBounds.bottomY);
-          debugCtx.lineTo(width, manualBounds.bottomY);
+          debugCtx.moveTo(-width, manualBounds.bottomY);
+          debugCtx.lineTo(width * 2, manualBounds.bottomY);
           debugCtx.stroke();
+
+          // Draw scan area highlight
+          debugCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+          debugCtx.fillRect(-width, manualBounds.topY, width * 3, manualBounds.bottomY - manualBounds.topY);
 
           // Add label
           debugCtx.fillStyle = '#00FF00';
           debugCtx.font = 'bold 16px Arial';
           debugCtx.fillText(`Manual Scan Area (${scanAreaHeight}px)`, 10, manualBounds.topY - 10);
+
+          debugCtx.restore();
         }
 
         // Add info text
