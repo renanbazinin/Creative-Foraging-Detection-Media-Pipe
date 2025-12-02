@@ -1059,6 +1059,7 @@ function MoveHistoryEditor({ sessionGameId }) {
   const experimentCount = session.moves?.filter(m => m.phase === 'experiment').length || 0;
   const playerACount = session.moves?.filter(m => m.player === 'Player A').length || 0;
   const playerBCount = session.moves?.filter(m => m.player === 'Player B').length || 0;
+  const noneCount = session.moves?.filter(m => !m.player || m.player === 'None' || m.player === 'Unknown').length || 0;
 
 
   return (
@@ -1100,32 +1101,32 @@ function MoveHistoryEditor({ sessionGameId }) {
               Experiment ({experimentCount})
             </button>
           </div>
-          <div className="phase-filter" style={{ marginTop: '4px' }}>
+          <div className="player-filter" style={{ marginTop: '4px' }}>
             <button
               className={`filter-btn ${filterPlayer === 'all' ? 'active' : ''}`}
               onClick={() => setFilterPlayer('all')}
             >
-              All Players
+              All Players ({session.moves?.length || 0})
             </button>
             <button
               className={`filter-btn ${filterPlayer === 'Player A' ? 'active' : ''}`}
               onClick={() => setFilterPlayer('Player A')}
               style={{ borderColor: colorA, color: filterPlayer === 'Player A' ? 'white' : colorA, backgroundColor: filterPlayer === 'Player A' ? colorA : 'transparent' }}
             >
-              Player A
+              Player A ({playerACount})
             </button>
             <button
               className={`filter-btn ${filterPlayer === 'Player B' ? 'active' : ''}`}
               onClick={() => setFilterPlayer('Player B')}
               style={{ borderColor: colorB, color: filterPlayer === 'Player B' ? 'white' : colorB, backgroundColor: filterPlayer === 'Player B' ? colorB : 'transparent' }}
             >
-              Player B
+              Player B ({playerBCount})
             </button>
             <button
               className={`filter-btn ${filterPlayer === 'None' ? 'active' : ''}`}
               onClick={() => setFilterPlayer('None')}
             >
-              None/Unknown
+              None/Unknown ({noneCount})
             </button>
           </div>
         </div>
@@ -1161,32 +1162,6 @@ function MoveHistoryEditor({ sessionGameId }) {
                 </div>
               </div>
             )}
-          </div>
-
-          {/* AI Identification Controls */}
-          <div className="ai-controls">
-            <button
-              className="ai-btn ai-btn-all"
-              onClick={handleAiIdentifyAll}
-              disabled={aiProcessing}
-            >
-              {aiProcessing && aiProgress.total > 0
-                ? aiRetryStatus
-                  ? `${aiRetryStatus} ${aiProgress.current}/${aiProgress.total}`
-                  : `Processing ${aiProgress.current}/${aiProgress.total}...`
-                : 'AI Identify All'}
-            </button>
-            <button
-              className="ai-btn ai-btn-unknown"
-              onClick={handleAiIdentifyUnknown}
-              disabled={aiProcessing}
-            >
-              {aiProcessing && aiProgress.total > 0
-                ? aiRetryStatus
-                  ? `${aiRetryStatus} ${aiProgress.current}/${aiProgress.total}`
-                  : `Processing ${aiProgress.current}/${aiProgress.total}...`
-                : 'AI Identify Unknown'}
-            </button>
           </div>
 
           {/* Color Identification Controls */}
@@ -1232,65 +1207,108 @@ function MoveHistoryEditor({ sessionGameId }) {
             >
               {allAllProcessing ? '🌐 Identifying by All All...' : '🌐 Identify by All Unknown'}
             </button>
-            <div className="color-anchor-toggle">
-              <label>Color scan:</label>
-              <select
-                value={colorAnchor}
-                onChange={(e) => {
-                  setColorAnchor(e.target.value);
-                  if (e.target.value === 'manually') {
-                    // Get a random frame to use for manual selection
-                    const moves = session?.moves || [];
-                    if (moves.length > 0) {
-                      const randomMove = moves[Math.floor(Math.random() * moves.length)];
-                      if (randomMove?.camera_frame) {
-                        setManualSelectorFrame(randomMove.camera_frame);
+            <div className="color-anchor-toggle" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+
+              <div className="scan-mode-radios" style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="scanMode"
+                    checked={colorAnchor !== 'manually'}
+                    onChange={() => {
+                      setColorAnchor('bottom');
+                      setShowManualSelector(false);
+                      setManualScanBounds(null);
+                      setManualSelectorFrame(null);
+                    }}
+                  />
+                  General
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}>
+                  <input
+                    type="radio"
+                    name="scanMode"
+                    checked={colorAnchor === 'manually'}
+                    onChange={() => {
+                      setColorAnchor('manually');
+                      // Get a random frame to use for manual selection
+                      const moves = session?.moves || [];
+                      if (moves.length > 0) {
+                        const randomMove = moves[Math.floor(Math.random() * moves.length)];
+                        if (randomMove?.camera_frame) {
+                          setManualSelectorFrame(randomMove.camera_frame);
+                          setShowManualSelector(true);
+                        } else {
+                          alert('No frames available. Please ensure moves have camera frames.');
+                          setColorAnchor('bottom'); // Reset
+                        }
+                      } else {
+                        alert('No moves available.');
+                        setColorAnchor('bottom'); // Reset
+                      }
+                    }}
+                  />
+                  Manual
+                </label>
+              </div>
+
+              {colorAnchor !== 'manually' && (
+                <>
+                  <label>Scan area:</label>
+                  <select
+                    value={colorAnchor}
+                    onChange={(e) => setColorAnchor(e.target.value)}
+                    style={{ padding: '6px', borderRadius: '4px', background: '#222', color: '#fff', border: '1px solid #444' }}
+                  >
+                    <option value="bottom">Bottom</option>
+                    <option value="top">Top</option>
+                  </select>
+                  <div className="color-scan-percentage">
+                    <label>{colorScanPercentage}%</label>
+                    <input
+                      type="range"
+                      min="20"
+                      max="100"
+                      step="5"
+                      value={colorScanPercentage}
+                      onChange={(e) => setColorScanPercentage(Number(e.target.value))}
+                      style={{ width: '80px', marginLeft: '8px' }}
+                    />
+                  </div>
+                </>
+              )}
+
+              {colorAnchor === 'manually' && (
+                <div className="manual-bounds-info" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {manualScanBounds ? (
+                    <span style={{ fontSize: '12px', color: '#aaa' }}>
+                      Y: {Math.round(manualScanBounds.topY)}→{Math.round(manualScanBounds.bottomY)}
+                    </span>
+                  ) : (
+                    <span style={{ fontSize: '12px', color: '#f44336' }}>Not set</span>
+                  )}
+                  <button
+                    onClick={() => {
+                      // Re-open selector with same frame if possible, or new random one
+                      if (manualSelectorFrame) {
                         setShowManualSelector(true);
                       } else {
-                        alert('No frames available. Please ensure moves have camera frames.');
-                        setColorAnchor('bottom'); // Reset to previous value
+                        const moves = session?.moves || [];
+                        const randomMove = moves[Math.floor(Math.random() * moves.length)];
+                        if (randomMove?.camera_frame) {
+                          setManualSelectorFrame(randomMove.camera_frame);
+                          setShowManualSelector(true);
+                        }
                       }
-                    } else {
-                      alert('No moves available.');
-                      setColorAnchor('bottom'); // Reset to previous value
-                    }
-                  } else {
-                    setShowManualSelector(false);
-                    setManualScanBounds(null);
-                    setManualSelectorFrame(null);
-                  }
-                }}
-              >
-                <option value="bottom">Bottom</option>
-                <option value="top">Top</option>
-                <option value="manually">Manually</option>
-              </select>
+                    }}
+                    className="ai-btn"
+                    style={{ padding: '4px 8px', fontSize: '12px', backgroundColor: '#2196F3' }}
+                  >
+                    Change scan area
+                  </button>
+                </div>
+              )}
             </div>
-            {colorAnchor !== 'manually' && (
-              <div className="color-scan-percentage">
-                <label>Scan area: {colorScanPercentage}%</label>
-                <input
-                  type="range"
-                  min="20"
-                  max="100"
-                  step="5"
-                  value={colorScanPercentage}
-                  onChange={(e) => setColorScanPercentage(Number(e.target.value))}
-                  style={{ width: '120px', marginLeft: '8px' }}
-                />
-              </div>
-            )}
-            {colorAnchor === 'manually' && manualScanBounds && (
-              <div className="manual-bounds-info">
-                <span>Manual: Y={manualScanBounds.topY} → {manualScanBounds.bottomY}</span>
-                <button
-                  onClick={() => setShowManualSelector(true)}
-                  style={{ marginLeft: '8px', padding: '4px 8px' }}
-                >
-                  Edit
-                </button>
-              </div>
-            )}
           </div>
         </div>
       </header >
