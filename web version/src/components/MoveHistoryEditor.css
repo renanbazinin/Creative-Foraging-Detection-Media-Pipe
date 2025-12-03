@@ -84,7 +84,8 @@
   /* Push to right */
 }
 
-.phase-filter {
+.phase-filter,
+.player-filter {
   display: flex;
   gap: 8px;
   background: #1a1a1a;

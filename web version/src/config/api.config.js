@@ -13,8 +13,11 @@ const API_CONFIGS = {
     healthUrl: 'http://localhost:4000/health'
   },
   production: {
-    baseUrl: 'https://cfg-server.onrender.com/api',
-    healthUrl: 'https://cfg-server.onrender.com/health'
+    //baseUrl: 'https://cfg-server.onrender.com/api',
+    //healthUrl: 'https://cfg-server.onrender.com/health'
+    baseUrl: 'https://cfg-279108523744.europe-west1.run.app/api',
+    healthUrl: 'https://cfg-279108523744.europe-west1.run.app/health'
+
   }
 };
 

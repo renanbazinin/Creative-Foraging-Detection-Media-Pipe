@@ -261,6 +261,38 @@
   }
 }
 
+/* Larger gallery frame for summary view - centered at bottom */
+.summary-game-area .gallery {
+  position: absolute !important;
+  bottom: 20px !important;
+  left: 50% !important;
+  right: auto !important;
+  transform: translateX(-50%) !important;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+}
+
+.summary-game-area .gallery-frame {
+  width: clamp(180px, 25%, 320px);
+  height: clamp(135px, 18.75%, 240px);
+  border: 4px solid white;
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgba(255, 255, 255, 0.3);
+  margin: 0 auto;
+}
+
+.summary-game-area .gallery-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.summary-game-area .gallery-placeholder {
+  font-size: clamp(18px, 2vw, 24px);
+}
+
 .summary-stats {
   background: #1f1f1f;
   border: 1px solid #333;

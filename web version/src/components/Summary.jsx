@@ -100,8 +100,8 @@ function Summary({
           const x = (pos[0] + 0.5) * 400;
           const y = (pos[1] + 0.5) * 400;
           ctx.fillStyle = 'green';
-          // Use proportional block size (60px for 400px canvas = 15% of canvas)
-          const blockSize = 60;
+          // Smaller block size with more gaps (28px for 400px canvas)
+          const blockSize = 28;
           ctx.fillRect(x - blockSize / 2, y - blockSize / 2, blockSize, blockSize);
         });
         
