@@ -1413,7 +1413,7 @@ const getImageSegmenter = async () => {
         delegate: 'GPU'
       },
       outputCategoryMask: true,
-      outputConfidenceMasks: false,
+      outputConfidenceMasks: true,
       runningMode: 'IMAGE'
     });
   }
@@ -1799,8 +1799,9 @@ const identifyPlayerByArmSegmentation = async (
 
 /**
  * Run multiclass segmentation and return visualization for all 6 classes
+ * For Class 0 (Background), uses confidence threshold (same as identifyPlayersByAllAll)
  */
-const getMulticlassSegmentation = async (imageSource) => {
+const getMulticlassSegmentation = async (imageSource, options = {}) => {
   try {
     const imageElement = await loadImageElement(imageSource);
     const width = imageElement.naturalWidth || imageElement.width;
@@ -1814,6 +1815,20 @@ const getMulticlassSegmentation = async (imageSource) => {
       throw new Error('No category mask returned');
     }
 
+    // Background confidence threshold (same as identifyPlayersByAllAll)
+    // 0.8 = if model is less than 80% sure it's background, we consider it foreground
+    const backgroundThreshold = options.sensitivity || 0.85;
+
+    // Get background confidence mask for Class 0
+    let bgConfidenceMask = null;
+    let bgMaskWidth = width;
+    let bgMaskHeight = height;
+    if (results.confidenceMasks && results.confidenceMasks[0]) {
+      bgConfidenceMask = results.confidenceMasks[0].getAsFloat32Array();
+      bgMaskWidth = results.confidenceMasks[0].width;
+      bgMaskHeight = results.confidenceMasks[0].height;
+    }
+
     // Classes defined by the model
     const classes = [
       { id: 0, name: 'Background', desc: 'Walls, ceiling, screen', color: [0, 0, 0] },
@@ -1824,7 +1839,7 @@ const getMulticlassSegmentation = async (imageSource) => {
       { id: 5, name: 'Others', desc: 'Accessories (Watch, wristband)', color: [255, 255, 0] } // Yellow
     ];
 
-    // Extract mask data
+    // Extract category mask data (for classes 1-5)
     let maskData;
     if (results.categoryMask.getAsUint8Array) {
       maskData = results.categoryMask.getAsUint8Array();
@@ -1852,6 +1867,10 @@ const getMulticlassSegmentation = async (imageSource) => {
       }
     }
 
+    // Calculate scale factors for confidence mask (may be different size than image)
+    const scaleX = bgMaskWidth / width;
+    const scaleY = bgMaskHeight / height;
+
     // Generate preview for each class
     const classResults = await Promise.all(classes.map(async (cls) => {
       const canvas = document.createElement('canvas');
@@ -1867,36 +1886,55 @@ const getMulticlassSegmentation = async (imageSource) => {
       const data = imageData.data;
       let pixelCount = 0;
 
-      for (let i = 0; i < maskData.length; i++) {
-        if (maskData[i] === cls.id) {
-          pixelCount++;
-          const idx = i * 4;
-          // Blend color
-          if (cls.id === 0) {
-            // Special handling for Background (Class 0) to make it darker/clearer
-            // Darken the background pixels significantly (keep 25% brightness) so the "mask" effect is obvious
-            // Class color is [0,0,0] so adding it does nothing
-            data[idx] = data[idx] * 0.25;
-            data[idx + 1] = data[idx + 1] * 0.25;
-            data[idx + 2] = data[idx + 2] * 0.25;
-          } else {
+      if (cls.id === 0 && bgConfidenceMask) {
+        // For Background class: use confidence threshold logic
+        // "Background" = pixels where model is >= backgroundThreshold confident it's background
+        for (let y = 0; y < height; y++) {
+          for (let x = 0; x < width; x++) {
+            const i = y * width + x;
+
+            // Map to confidence mask coordinates
+            const maskX = Math.min(bgMaskWidth - 1, Math.floor(x * scaleX));
+            const maskY = Math.min(bgMaskHeight - 1, Math.floor(y * scaleY));
+            const maskIdx = maskY * bgMaskWidth + maskX;
+            const bgConfidence = bgConfidenceMask[maskIdx];
+
+            // If bgConfidence >= threshold, it's background (darken it)
+            // This matches identifyPlayersByAllAll where bgConfidence < threshold = foreground
+            if (bgConfidence >= backgroundThreshold) {
+              pixelCount++;
+              const idx = i * 4;
+              // Darken background pixels significantly (keep 25% brightness)
+              data[idx] = data[idx] * 0.25;
+              data[idx + 1] = data[idx + 1] * 0.25;
+              data[idx + 2] = data[idx + 2] * 0.25;
+            }
+          }
+        }
+      } else {
+        // For other classes: use category mask
+        for (let i = 0; i < maskData.length; i++) {
+          if (maskData[i] === cls.id) {
+            pixelCount++;
+            const idx = i * 4;
             // Standard 50/50 blend for other classes
             data[idx] = (data[idx] + cls.color[0]) / 2;
             data[idx + 1] = (data[idx + 1] + cls.color[1]) / 2;
             data[idx + 2] = (data[idx + 2] + cls.color[2]) / 2;
           }
-          // Alpha remains 255
-        } else {
-          // Optional: Dim other pixels slightly to pop the class? 
-          // For now, leave as is or dim slightly
-          // const idx = i * 4;
-          // data[idx] *= 0.8;
-          // data[idx+1] *= 0.8;
-          // data[idx+2] *= 0.8;
         }
       }
 
       ctx.putImageData(imageData, 0, 0);
+
+      // Add threshold info label for Background class
+      if (cls.id === 0) {
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        ctx.fillRect(10, 10, 200, 30);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = 'bold 12px Arial';
+        ctx.fillText(`Threshold: ${backgroundThreshold}`, 20, 30);
+      }
 
       return {
         ...cls,

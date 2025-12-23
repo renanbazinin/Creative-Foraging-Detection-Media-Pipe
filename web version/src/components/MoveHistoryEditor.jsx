@@ -73,6 +73,7 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [showSwipeView, setShowSwipeView] = useState(false);
   const [swipeViewFrames, setSwipeViewFrames] = useState([]);
   const [swipeViewClusterColors, setSwipeViewClusterColors] = useState({});
+  const [backgroundSensitivity, setBackgroundSensitivity] = useState(0.85); // Background detection threshold
 
 
   const detectPlayerByColor = useCallback(
@@ -635,7 +636,8 @@ function MoveHistoryEditor({ sessionGameId }) {
         colorB,
         calibrationA,
         calibrationB,
-        anchor: colorAnchor
+        anchor: colorAnchor,
+        backgroundSensitivity
       });
     } catch (err) {
       console.error(`[MoveHistoryEditor] Error color-identifying move:`, err);
@@ -792,7 +794,8 @@ function MoveHistoryEditor({ sessionGameId }) {
           stride: 2,
           minPixels: 80,
           manualBounds: colorAnchor === 'manually' ? manualScanBounds : null,
-          playerColors: { 'Player A': colorA, 'Player B': colorB }
+          playerColors: { 'Player A': colorA, 'Player B': colorB },
+          sensitivity: backgroundSensitivity
         });
 
         if (result?.analytics) {
@@ -1058,7 +1061,7 @@ function MoveHistoryEditor({ sessionGameId }) {
     // 1. First: frames with suggestions below threshold (not yet confirmed)
     // 2. Then: frames that are unknown/none
     const movesWithFrames = session.moves.filter(m => m.camera_frame);
-    
+
     // Frames with low confidence suggestions
     const lowConfidenceFrames = movesWithFrames
       .filter(m => {
@@ -1085,8 +1088,8 @@ function MoveHistoryEditor({ sessionGameId }) {
     // Unknown/None frames (not already in low confidence list)
     const lowConfidenceIds = new Set(lowConfidenceFrames.map(f => f.id));
     const unknownFrames = movesWithFrames
-      .filter(m => 
-        !lowConfidenceIds.has(m._id) && 
+      .filter(m =>
+        !lowConfidenceIds.has(m._id) &&
         (!m.player || m.player === 'Unknown' || m.player === 'None')
       )
       .map(m => ({
@@ -1115,7 +1118,7 @@ function MoveHistoryEditor({ sessionGameId }) {
 
   const handleCloseSwipeView = (result) => {
     setShowSwipeView(false);
-    
+
     // Remove suggestions for frames that were labeled (not skipped)
     if (result?.labeledIds && result.labeledIds.length > 0) {
       setColorSuggestions(prev => {
@@ -1125,7 +1128,7 @@ function MoveHistoryEditor({ sessionGameId }) {
         });
         return updated;
       });
-      
+
       // Also remove AI suggestions if any
       setAiSuggestions(prev => {
         const updated = { ...prev };
@@ -1135,7 +1138,7 @@ function MoveHistoryEditor({ sessionGameId }) {
         return updated;
       });
     }
-    
+
     // Reload session to get updated player assignments
     loadSession();
   };
@@ -1430,7 +1433,8 @@ function MoveHistoryEditor({ sessionGameId }) {
                 <div className="manual-bounds-info" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   {manualScanBounds ? (
                     <span style={{ fontSize: '12px', color: '#aaa' }}>
-                      Y: {Math.round(manualScanBounds.topY)}→{Math.round(manualScanBounds.bottomY)}
+                      Y: {Math.round(manualScanBounds.topY)}→{Math.round(manualScanBounds.bottomY)} |
+                      X: {Math.round(manualScanBounds.leftX ?? 0)}→{Math.round(manualScanBounds.rightX ?? 0)}
                     </span>
                   ) : (
                     <span style={{ fontSize: '12px', color: '#f44336' }}>Not set</span>
@@ -1456,10 +1460,26 @@ function MoveHistoryEditor({ sessionGameId }) {
                   </button>
                 </div>
               )}
+
+              {/* Background Sensitivity Slider */}
+              <div className="bg-sensitivity-control" style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                <label style={{ fontSize: '12px', color: '#aaa' }}>BG Sensitivity:</label>
+                <span style={{ fontSize: '12px', color: '#fff', minWidth: '35px' }}>{backgroundSensitivity.toFixed(2)}</span>
+                <input
+                  type="range"
+                  min="0.3"
+                  max="0.99"
+                  step="0.01"
+                  value={backgroundSensitivity}
+                  onChange={(e) => setBackgroundSensitivity(Number(e.target.value))}
+                  style={{ width: '100px' }}
+                  title="Higher = more pixels included as foreground (less aggressive filtering)"
+                />
+              </div>
             </div>
           </div>
         </div>
-      </header >
+      </header>
 
       {clothAnalytics && (
         <section className="cloth-analytics">
@@ -1893,14 +1913,16 @@ function MoveHistoryEditor({ sessionGameId }) {
       }
 
       {/* SwipeView Modal */}
-      {showSwipeView && (
-        <SwipeView
-          sessionGameId={sessionGameId}
-          onClose={handleCloseSwipeView}
-          initialFrames={swipeViewFrames}
-          clusterColors={swipeViewClusterColors}
-        />
-      )}
+      {
+        showSwipeView && (
+          <SwipeView
+            sessionGameId={sessionGameId}
+            onClose={handleCloseSwipeView}
+            initialFrames={swipeViewFrames}
+            clusterColors={swipeViewClusterColors}
+          />
+        )
+      }
     </div >
   );
 }

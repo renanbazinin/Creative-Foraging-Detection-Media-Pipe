@@ -36,7 +36,8 @@ function ColorPreviewModal({ colorPreview, onClose }) {
     if (!colorPreview?.original) return;
     setLoadingMulticlass(true);
     try {
-      const data = await getMulticlassSegmentation(colorPreview.original);
+      const sensitivity = colorPreview.backgroundSensitivity || 0.85;
+      const data = await getMulticlassSegmentation(colorPreview.original, { sensitivity });
       setMulticlassData(data);
     } catch (err) {
       console.error('Failed to run multiclass segmentation:', err);
@@ -67,15 +68,15 @@ function ColorPreviewModal({ colorPreview, onClose }) {
     <div className="image-modal" onClick={onClose}>
       <div className="image-modal-content color-preview-modal" onClick={(e) => e.stopPropagation()}>
         <button className="close-modal" onClick={onClose}>✕</button>
-        
+
         <div className="color-preview-tabs">
-          <button 
+          <button
             className={`color-preview-tab ${activeTab === 'overview' ? 'active' : ''}`}
             onClick={() => setActiveTab('overview')}
           >
             Overview
           </button>
-          <button 
+          <button
             className={`color-preview-tab ${activeTab === 'multiclass' ? 'active' : ''}`}
             onClick={() => {
               setActiveTab('multiclass');
@@ -254,7 +255,7 @@ function ColorPreviewModal({ colorPreview, onClose }) {
                     </h3>
                     {colorPreview.stats.armRegions && colorPreview.stats.armRegions.length > 0 ? (
                       colorPreview.stats.armRegions.map((arm, idx) => {
-                        const isBest = colorPreview.stats.bestArm && 
+                        const isBest = colorPreview.stats.bestArm &&
                           arm.category === colorPreview.stats.bestArm.category &&
                           arm.dominantColor === colorPreview.stats.bestArm.dominantColor;
                         return (
@@ -354,7 +355,7 @@ function ColorPreviewModal({ colorPreview, onClose }) {
                 ))}
               </div>
             )}
-            
+
             {!loadingMulticlass && !multiclassData && (
               <div className="error-message">
                 <p>Failed to load segmentation data. Check console for details.</p>

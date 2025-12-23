@@ -196,8 +196,8 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
     // 0.5 = Standard
     // 0.8 = Very Sensitive (Includes pixels even if model thinks they are likely background)
     // 0.95 = Extremely Sensitive (Almost everything except pure green screen is included)
-    const backgroundThreshold = options.sensitivity || 0.8;
-
+    //const backgroundThreshold = options.sensitivity || 0.8;
+    const backgroundThreshold = options.sensitivity || 0.85;
     const framesToProcess = frames.slice(0, maxFrames);
     const results = [];
     let skippedFrames = 0;
@@ -210,14 +210,35 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
 
             const segmentation = segmenter.segment(imageElement);
 
-            // --- NEW: Handle Confidence Masks ---
+            // --- Handle Confidence Masks ---
             // Index 0 is always Background in this model
+            if (!segmentation.confidenceMasks || !segmentation.confidenceMasks[0]) {
+                console.error('[DEBUG] No confidence masks available!', segmentation);
+                skippedFrames += 1;
+                continue;
+            }
+
             const bgMaskFloatArray = segmentation.confidenceMasks[0].getAsFloat32Array();
 
             // Confidence masks are usually the size of the model output (e.g., 256x256)
-            // We need to know the mask dimensions to map them to the image
             const maskWidth = segmentation.confidenceMasks[0].width;
             const maskHeight = segmentation.confidenceMasks[0].height;
+
+            // Debug: Check confidence mask values on first frame
+            if (results.length === 0) {
+                // Sample some values from the center
+                const centerIdx = Math.floor(maskHeight / 2) * maskWidth + Math.floor(maskWidth / 2);
+                console.log(`[DEBUG] Confidence mask stats: length=${bgMaskFloatArray.length}, maskDim=${maskWidth}x${maskHeight}`);
+                console.log(`[DEBUG] Sample bgConfidence values: center=${bgMaskFloatArray[centerIdx]?.toFixed(3)}, [0]=${bgMaskFloatArray[0]?.toFixed(3)}, [100]=${bgMaskFloatArray[100]?.toFixed(3)}`);
+
+                // Find min/max confidence
+                let minConf = 1, maxConf = 0;
+                for (let i = 0; i < bgMaskFloatArray.length; i += 100) {
+                    if (bgMaskFloatArray[i] < minConf) minConf = bgMaskFloatArray[i];
+                    if (bgMaskFloatArray[i] > maxConf) maxConf = bgMaskFloatArray[i];
+                }
+                console.log(`[DEBUG] BG Confidence range: min=${minConf.toFixed(3)}, max=${maxConf.toFixed(3)}, threshold=${backgroundThreshold}`);
+            }
             // ------------------------------------
 
             const videoCanvas = document.createElement('canvas');
@@ -233,6 +254,8 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             // Determine Y range for sampling
             let startY = 0;
             let endY = height;
+            let startX = 0;
+            let endX = width;
             let rotation = 0;
             let cosRot = 1;
             let sinRot = 0;
@@ -248,9 +271,24 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                     // Scan whole image if rotated (optimization possible but keeping it simple for now)
                     startY = 0;
                     endY = height;
+                    startX = 0;
+                    endX = width;
                 } else {
                     startY = Math.max(0, manualBounds.topY);
                     endY = Math.min(height, manualBounds.bottomY);
+                    startX = Math.max(0, manualBounds.leftX ?? 0);
+                    endX = Math.min(width, manualBounds.rightX ?? width);
+                }
+
+                // Debug bounds on first frame
+                if (results.length === 0) {
+                    console.log(`[DEBUG] Manual bounds: topY=${manualBounds.topY}, bottomY=${manualBounds.bottomY}, leftX=${manualBounds.leftX}, rightX=${manualBounds.rightX}`);
+                    console.log(`[DEBUG] Computed scan area: X=${startX}→${endX}, Y=${startY}→${endY}, rotation=${rotation}`);
+                }
+            } else {
+                // Debug: no manual bounds
+                if (results.length === 0) {
+                    console.log(`[DEBUG] No manual bounds - scanning full image: X=0→${width}, Y=0→${height}`);
                 }
             }
 
@@ -261,43 +299,83 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             let sumY = 0;
             let pixelCount = 0;
 
+            // Debug: Track confidence values within scan area
+            let scanAreaPixels = 0;
+            let scanAreaMinConf = 1;
+            let scanAreaMaxConf = 0;
+
             // Sample pixels, filtering out background (class 0)
             for (let y = startY; y < endY; y += stride) {
                 const maskY = Math.min(maskHeight - 1, Math.floor(y / scaleY));
-                for (let x = 0; x < width; x += stride) {
+                for (let x = startX; x < endX; x += stride) {
 
                     // Check bounds with rotation
                     if (manualBounds && rotation !== 0) {
                         const dx = x - cx;
                         const dy = y - cy;
+                        const rx = dx * cosRot - dy * sinRot + cx;
                         const ry = dx * sinRot + dy * cosRot + cy;
 
+                        // Check if rotated point is within bounds
                         if (ry < manualBounds.topY || ry > manualBounds.bottomY) {
                             continue;
+                        }
+                        if (manualBounds.leftX !== undefined && manualBounds.rightX !== undefined) {
+                            if (rx < manualBounds.leftX || rx > manualBounds.rightX) {
+                                continue;
+                            }
                         }
                     }
 
                     const maskX = Math.min(maskWidth - 1, Math.floor(x / scaleX));
 
-                    // --- NEW: Check Probability instead of Class Index ---
+                    // --- Check Probability instead of Class Index ---
                     const maskIdx = maskY * maskWidth + maskX;
                     const bgConfidence = bgMaskFloatArray[maskIdx];
+
+                    // Track confidence values within scan area
+                    scanAreaPixels++;
+                    if (bgConfidence < scanAreaMinConf) scanAreaMinConf = bgConfidence;
+                    if (bgConfidence > scanAreaMaxConf) scanAreaMaxConf = bgConfidence;
 
                     // If the model's confidence that this is background is LOWER 
                     // than our threshold, we consider it a Player/Foreground.
                     if (bgConfidence < backgroundThreshold) {
-                        const idx = (y * width + x) * 4;
+                        // IMPORTANT: Floor y and x to get integer indices!
+                        const intY = Math.floor(y);
+                        const intX = Math.floor(x);
+                        const idx = (intY * width + intX) * 4;
                         const r = videoData[idx];
                         const g = videoData[idx + 1];
                         const b = videoData[idx + 2];
+
+                        // Safety check: skip if values are undefined or NaN
+                        if (r === undefined || g === undefined || b === undefined ||
+                            Number.isNaN(r) || Number.isNaN(g) || Number.isNaN(b)) {
+                            continue;
+                        }
+
                         sumR += r;
                         sumG += g;
                         sumB += b;
-                        sumX += x;
-                        sumY += y;
+                        sumX += intX;
+                        sumY += intY;
                         pixelCount += 1;
                     }
                 }
+            }
+
+            // Debug: Log confidence range within scan area
+            if (results.length === 0) {
+                console.log(`[DEBUG] WITHIN SCAN AREA: ${scanAreaPixels} pixels sampled, bgConfidence range: ${scanAreaMinConf.toFixed(3)} → ${scanAreaMaxConf.toFixed(3)}`);
+                console.log(`[DEBUG] Threshold=${backgroundThreshold} → Need bgConfidence < ${backgroundThreshold} to count as foreground`);
+            }
+
+            // Debug: Log first frame's pixel stats
+            if (results.length === 0) {
+                console.log(`[DEBUG] First frame: width=${width}, height=${height}, maskWidth=${maskWidth}, maskHeight=${maskHeight}`);
+                console.log(`[DEBUG] First frame: pixelCount=${pixelCount}, sumR=${sumR}, sumG=${sumG}, sumB=${sumB}`);
+                console.log(`[DEBUG] First frame: videoData length=${videoData.length}, expected=${width * height * 4}`);
             }
 
             if (pixelCount < minPixels) {
@@ -356,35 +434,53 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
                         debugCtx.translate(-cx, -cy);
                     }
 
-                    // Dim area outside bounds (approximate for rotation or just draw lines)
-                    // For rotation, filling the outside is harder, let's just draw the box and lines
+                    const boundsLeft = manualBounds.leftX ?? 0;
+                    const boundsRight = manualBounds.rightX ?? width;
 
-                    // Draw boundary lines
-                    debugCtx.strokeStyle = '#00FF00'; // Green = Top
+                    // Draw scan area highlight (rectangle)
+                    debugCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+                    debugCtx.fillRect(boundsLeft, manualBounds.topY, boundsRight - boundsLeft, manualBounds.bottomY - manualBounds.topY);
+
+                    // Draw top line (green)
+                    debugCtx.strokeStyle = '#00FF00';
                     debugCtx.lineWidth = 3;
                     debugCtx.setLineDash([]);
                     debugCtx.beginPath();
-                    debugCtx.moveTo(-width, manualBounds.topY);
-                    debugCtx.lineTo(width * 2, manualBounds.topY);
+                    debugCtx.moveTo(boundsLeft, manualBounds.topY);
+                    debugCtx.lineTo(boundsRight, manualBounds.topY);
                     debugCtx.stroke();
 
-                    debugCtx.strokeStyle = '#FFFF00'; // Yellow = Bottom
-                    debugCtx.lineWidth = 3;
+                    // Draw bottom line (yellow)
+                    debugCtx.strokeStyle = '#FFFF00';
+                    debugCtx.setLineDash([]);
+                    debugCtx.beginPath();
+                    debugCtx.moveTo(boundsLeft, manualBounds.bottomY);
+                    debugCtx.lineTo(boundsRight, manualBounds.bottomY);
+                    debugCtx.stroke();
+
+                    // Draw left line (cyan)
+                    debugCtx.strokeStyle = '#00FFFF';
+                    debugCtx.lineWidth = 2;
                     debugCtx.setLineDash([5, 5]);
                     debugCtx.beginPath();
-                    debugCtx.moveTo(-width, manualBounds.bottomY);
-                    debugCtx.lineTo(width * 2, manualBounds.bottomY);
+                    debugCtx.moveTo(boundsLeft, manualBounds.topY);
+                    debugCtx.lineTo(boundsLeft, manualBounds.bottomY);
                     debugCtx.stroke();
 
-                    // Draw scan area highlight
-                    debugCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
-                    debugCtx.fillRect(-width, manualBounds.topY, width * 3, manualBounds.bottomY - manualBounds.topY);
+                    // Draw right line (magenta)
+                    debugCtx.strokeStyle = '#FF00FF';
+                    debugCtx.beginPath();
+                    debugCtx.moveTo(boundsRight, manualBounds.topY);
+                    debugCtx.lineTo(boundsRight, manualBounds.bottomY);
+                    debugCtx.stroke();
 
                     // Add label
                     const scanAreaHeight = manualBounds.bottomY - manualBounds.topY;
+                    const scanAreaWidth = boundsRight - boundsLeft;
+                    debugCtx.setLineDash([]);
                     debugCtx.fillStyle = '#00FF00';
-                    debugCtx.font = 'bold 16px Arial';
-                    debugCtx.fillText(`Manual Scan Area (${scanAreaHeight}px)`, 10, manualBounds.topY - 10);
+                    debugCtx.font = 'bold 14px Arial';
+                    debugCtx.fillText(`Scan: ${Math.round(scanAreaWidth)}×${Math.round(scanAreaHeight)}px`, boundsLeft + 5, manualBounds.topY - 5);
 
                     debugCtx.restore();
                 }
@@ -598,6 +694,85 @@ const identifyPlayersByAllAll = async (frames = [], options = {}) => {
             knownAssignments: stats.labelCounts
         };
     });
+
+    // ===== DEBUG STATISTICS =====
+    console.group('[identifyPlayersByAllAll] 📊 STATISTICS');
+
+    // Frame Processing Stats
+    console.log('📋 FRAME PROCESSING:');
+    console.log(`   Total frames provided: ${framesToProcess.length}`);
+    console.log(`   Frames processed successfully: ${results.length}`);
+    console.log(`   Frames skipped (below minPixels): ${skippedFrames}`);
+    console.log(`   Success rate: ${((results.length / framesToProcess.length) * 100).toFixed(1)}%`);
+
+    // Pixel Statistics
+    const totalPixels = results.reduce((sum, r) => sum + r.pixelCount, 0);
+    const avgPixelsPerFrame = totalPixels / results.length;
+    const minPixelsFrame = results.reduce((min, r) => r.pixelCount < min.pixelCount ? r : min, results[0]);
+    const maxPixelsFrame = results.reduce((max, r) => r.pixelCount > max.pixelCount ? r : max, results[0]);
+
+    console.log('🔢 PIXEL STATISTICS:');
+    console.log(`   Total foreground pixels detected: ${totalPixels.toLocaleString()}`);
+    console.log(`   Average pixels per frame: ${avgPixelsPerFrame.toFixed(0)}`);
+    console.log(`   Min pixels in a frame: ${minPixelsFrame.pixelCount} (moveId: ${minPixelsFrame.moveId})`);
+    console.log(`   Max pixels in a frame: ${maxPixelsFrame.pixelCount} (moveId: ${maxPixelsFrame.moveId})`);
+    console.log(`   Min pixels threshold (minPixels): ${minPixels}`);
+
+    // Clustering Stats
+    console.log('🎯 K-MEANS CLUSTERING:');
+    console.log(`   Number of clusters: ${centroids.length}`);
+    centroids.forEach((centroid, idx) => {
+        const r = Math.round(centroid[0] * 255);
+        const g = Math.round(centroid[1] * 255);
+        const b = Math.round(centroid[2] * 255);
+        console.log(`   Centroid ${idx}: RGB(${r}, ${g}, ${b}) = ${rgbToHex(r, g, b)}`);
+    });
+
+    // Cluster Details
+    console.log('📊 CLUSTER DETAILS:');
+    clusterSummaries.forEach((cluster, idx) => {
+        console.log(`   Cluster ${idx} (${cluster.assignedPlayer}):`);
+        console.log(`      - Samples: ${cluster.sampleCount}`);
+        console.log(`      - Mean Color: ${cluster.hexColor}`);
+        console.log(`      - Avg Pixels/Frame: ${cluster.avgPixels.toFixed(0)}`);
+        console.log(`      - Avg Brightness: ${cluster.avgBrightness.toFixed(1)}`);
+        console.log(`      - Known A labels: ${cluster.knownAssignments['Player A']}, B labels: ${cluster.knownAssignments['Player B']}`);
+    });
+
+    // Color Distribution
+    console.log('🎨 COLOR DISTRIBUTION:');
+    const colorStats = results.map(r => ({
+        moveId: r.moveId,
+        hex: rgbToHex(r.meanColor.r, r.meanColor.g, r.meanColor.b),
+        brightness: (r.meanColor.r + r.meanColor.g + r.meanColor.b) / 3,
+        hue: rgbToHue(r.meanColor.r, r.meanColor.g, r.meanColor.b)
+    }));
+    const minBrightness = Math.min(...colorStats.map(c => c.brightness));
+    const maxBrightness = Math.max(...colorStats.map(c => c.brightness));
+    console.log(`   Brightness range: ${minBrightness.toFixed(0)} - ${maxBrightness.toFixed(0)}`);
+    console.log(`   Hue range: ${Math.min(...colorStats.map(c => c.hue)).toFixed(0)}° - ${Math.max(...colorStats.map(c => c.hue)).toFixed(0)}°`);
+
+    // Assignment Summary
+    const assignmentCounts = { 'Player A': 0, 'Player B': 0 };
+    Object.values(assignmentsMap).forEach(a => {
+        assignmentCounts[a.player] = (assignmentCounts[a.player] || 0) + 1;
+    });
+    console.log('✅ FINAL ASSIGNMENTS:');
+    console.log(`   Player A: ${assignmentCounts['Player A']} frames`);
+    console.log(`   Player B: ${assignmentCounts['Player B']} frames`);
+
+    // Confidence Stats
+    const confidences = Object.values(assignmentsMap).map(a => a.confidence);
+    const avgConfidence = confidences.reduce((sum, c) => sum + c, 0) / confidences.length;
+    const minConfidence = Math.min(...confidences);
+    console.log('🔒 CONFIDENCE:');
+    console.log(`   Average confidence: ${(avgConfidence * 100).toFixed(1)}%`);
+    console.log(`   Min confidence: ${(minConfidence * 100).toFixed(1)}%`);
+    console.log(`   High confidence (>80%): ${confidences.filter(c => c > 0.8).length} frames`);
+    console.log(`   Low confidence (<60%): ${confidences.filter(c => c < 0.6).length} frames`);
+
+    console.groupEnd();
+    // ===== END DEBUG STATISTICS =====
 
     return {
         assignments: assignmentsMap,
