@@ -865,6 +865,37 @@ function MoveHistoryEditor({ sessionGameId }) {
     runAllAllIdentification({ mode: 'unknown' });
   }, [runAllAllIdentification]);
 
+  // Swap Player A and Player B assignments in All-All analytics
+  const handleSwapPlayerAssignments = useCallback(() => {
+    if (!allAllAnalytics?.clusters) return;
+
+    // Swap the assignedPlayer in clusters
+    const swappedClusters = allAllAnalytics.clusters.map(cluster => ({
+      ...cluster,
+      assignedPlayer: cluster.assignedPlayer === 'Player A' ? 'Player B' : 'Player A'
+    }));
+
+    setAllAllAnalytics(prev => ({
+      ...prev,
+      clusters: swappedClusters
+    }));
+
+    // Also swap the color suggestions
+    setColorSuggestions(prev => {
+      const swapped = {};
+      Object.entries(prev).forEach(([moveId, suggestion]) => {
+        if (suggestion?.player === 'Player A') {
+          swapped[moveId] = { ...suggestion, player: 'Player B' };
+        } else if (suggestion?.player === 'Player B') {
+          swapped[moveId] = { ...suggestion, player: 'Player A' };
+        } else {
+          swapped[moveId] = suggestion;
+        }
+      });
+      return swapped;
+    });
+  }, [allAllAnalytics]);
+
   const handleAiIdentifySingle = async (moveId) => {
     if (!sessionGameId || !password) return;
 
@@ -1603,33 +1634,86 @@ function MoveHistoryEditor({ sessionGameId }) {
                 </button>
               </div>
             </div>
-            <div className="cloth-style-grid">
-              {allAllAnalytics.clusters?.map((cluster) => (
-                <div key={cluster.id} className="cloth-style-card">
+            <div className="cloth-style-grid" style={{ alignItems: 'center', gap: '10px' }}>
+              {allAllAnalytics.clusters?.length >= 1 && (
+                <div key={allAllAnalytics.clusters[0].id} className="cloth-style-card">
                   <div className="cloth-style-card-header">
-                    <span className="style-label">{cluster.styleLabel}</span>
-                    <span className="player-label">{cluster.assignedPlayer}</span>
+                    <span className="style-label">{allAllAnalytics.clusters[0].styleLabel}</span>
+                    <span className="player-label">{allAllAnalytics.clusters[0].assignedPlayer}</span>
                   </div>
                   <div
                     className="cloth-style-color-chip"
-                    style={{ backgroundColor: cluster.hexColor }}
+                    style={{ backgroundColor: allAllAnalytics.clusters[0].hexColor }}
                   />
                   <div className="cloth-style-stats">
                     <div>
-                      <strong>Mean color:</strong> {cluster.hexColor}
+                      <strong>Mean color:</strong> {allAllAnalytics.clusters[0].hexColor}
                     </div>
                     <div>
-                      <strong>Frames:</strong> {cluster.sampleCount}
+                      <strong>Frames:</strong> {allAllAnalytics.clusters[0].sampleCount}
                     </div>
                     <div>
-                      <strong>Avg pixels:</strong> {formatNumber(cluster.avgPixels || 0)}
+                      <strong>Avg pixels:</strong> {formatNumber(allAllAnalytics.clusters[0].avgPixels || 0)}
                     </div>
                     <div>
-                      <strong>Avg brightness:</strong> {formatNumber(cluster.avgBrightness || 0)}
+                      <strong>Avg brightness:</strong> {formatNumber(allAllAnalytics.clusters[0].avgBrightness || 0)}
                     </div>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {/* Swap Button */}
+              {allAllAnalytics.clusters?.length === 2 && (
+                <button
+                  onClick={handleSwapPlayerAssignments}
+                  className="swap-players-btn"
+                  style={{
+                    display: 'flex',
+                    flexDirection: 'column',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    padding: '10px 15px',
+                    backgroundColor: '#2196F3',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: 'pointer',
+                    fontSize: '20px',
+                    minWidth: '60px'
+                  }}
+                  title="Swap Player A and Player B assignments"
+                >
+                  ⇄
+                  <span style={{ fontSize: '10px', marginTop: '4px' }}>Swap</span>
+                </button>
+              )}
+
+              {allAllAnalytics.clusters?.length >= 2 && (
+                <div key={allAllAnalytics.clusters[1].id} className="cloth-style-card">
+                  <div className="cloth-style-card-header">
+                    <span className="style-label">{allAllAnalytics.clusters[1].styleLabel}</span>
+                    <span className="player-label">{allAllAnalytics.clusters[1].assignedPlayer}</span>
+                  </div>
+                  <div
+                    className="cloth-style-color-chip"
+                    style={{ backgroundColor: allAllAnalytics.clusters[1].hexColor }}
+                  />
+                  <div className="cloth-style-stats">
+                    <div>
+                      <strong>Mean color:</strong> {allAllAnalytics.clusters[1].hexColor}
+                    </div>
+                    <div>
+                      <strong>Frames:</strong> {allAllAnalytics.clusters[1].sampleCount}
+                    </div>
+                    <div>
+                      <strong>Avg pixels:</strong> {formatNumber(allAllAnalytics.clusters[1].avgPixels || 0)}
+                    </div>
+                    <div>
+                      <strong>Avg brightness:</strong> {formatNumber(allAllAnalytics.clusters[1].avgBrightness || 0)}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </section>
         )

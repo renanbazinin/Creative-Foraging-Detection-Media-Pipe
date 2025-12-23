@@ -174,12 +174,64 @@ const updateMovePlayer = async (sessionGameId, moveId, player) => {
   return move;
 };
 
+/**
+ * Update player field for multiple moves at once
+ * @param {string} sessionGameId - Session identifier
+ * @param {Array<{moveId: string, player: string}>} updates - Array of updates
+ * @returns {Object} Result with updated count
+ */
+const updateMovePlayersBatch = async (sessionGameId, updates) => {
+  if (!sessionGameId) {
+    const error = new Error('sessionGameId is required');
+    error.status = 400;
+    throw error;
+  }
+
+  if (!Array.isArray(updates) || updates.length === 0) {
+    const error = new Error('updates array is required and must not be empty');
+    error.status = 400;
+    throw error;
+  }
+
+  const session = await Session.findOne({ sessionGameId });
+  if (!session) {
+    const error = new Error('Session not found');
+    error.status = 404;
+    throw error;
+  }
+
+  let updatedCount = 0;
+  const notFoundIds = [];
+
+  for (const { moveId, player } of updates) {
+    const move = session.moves.id(moveId);
+    if (move) {
+      move.player = player;
+      updatedCount++;
+    } else {
+      notFoundIds.push(moveId);
+    }
+  }
+
+  if (updatedCount > 0) {
+    session.updatedAt = new Date();
+    await session.save();
+  }
+
+  return {
+    updatedCount,
+    notFoundIds,
+    totalRequested: updates.length
+  };
+};
+
 module.exports = {
   upsertSession,
   listSessionSummaries,
   getSessionByGameId,
   getSessionExperimentOnly,
   appendMove,
-  updateMovePlayer
+  updateMovePlayer,
+  updateMovePlayersBatch
 };
 
