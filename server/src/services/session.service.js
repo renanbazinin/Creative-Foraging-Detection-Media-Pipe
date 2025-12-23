@@ -18,7 +18,7 @@ const upsertSession = async (payload = {}) => {
 
   // Check if session already exists
   const existingSession = await Session.findOne({ sessionGameId });
-  
+
   // Special case: ID "1" is for practice, always replace it
   if (sessionGameId === '1') {
     if (existingSession) {
@@ -57,18 +57,22 @@ const upsertSession = async (payload = {}) => {
 };
 
 const listSessionSummaries = async () => {
-  const sessions = await Session.find({}, 'sessionGameId subjectId condition updatedAt createdAt moves')
-    .sort({ updatedAt: -1 })
-    .lean();
+  // Use aggregation to count moves without loading heavy image data
+  const sessions = await Session.aggregate([
+    {
+      $project: {
+        sessionGameId: 1,
+        subjectId: 1,
+        condition: 1,
+        createdAt: 1,
+        updatedAt: 1,
+        movesCount: { $size: { $ifNull: ['$moves', []] } }
+      }
+    },
+    { $sort: { updatedAt: -1 } }
+  ]);
 
-  return sessions.map((session) => ({
-    sessionGameId: session.sessionGameId,
-    subjectId: session.subjectId,
-    condition: session.condition,
-    createdAt: session.createdAt,
-    updatedAt: session.updatedAt,
-    movesCount: session.moves?.length || 0
-  }));
+  return sessions;
 };
 
 const getSessionByGameId = async (sessionGameId) => {
@@ -103,7 +107,7 @@ const getSessionExperimentOnly = async (sessionGameId) => {
 
   // Filter out practice phase moves
   const experimentMoves = (session.moves || []).filter(move => move.phase !== 'practice');
-  
+
   return {
     ...session,
     moves: experimentMoves,
