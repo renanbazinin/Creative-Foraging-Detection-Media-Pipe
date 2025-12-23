@@ -99,7 +99,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
 
   useEffect(() => {
     setMessageText(welcomeMessage);
-    
+
     // Start game tracker when component mounts
     const initializeTracker = async () => {
       try {
@@ -121,7 +121,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
         }, 100);
       }
     };
-    
+
     initializeTracker();
 
     // Expose function to end game from outside (e.g., secEnd())
@@ -132,7 +132,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       gameTrackerRef.current.stop();
       console.log('[GameCanvas] Game ended via endGameExperience(). All data saved to server.');
     };
-    
+
     return () => {
       if (window.endGameExperience) {
         delete window.endGameExperience;
@@ -195,8 +195,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const availableHeight = canvas.offsetHeight - bottomPaddingRef.current; // Subtract bottom margin
     const size = Math.min(canvas.offsetWidth, availableHeight);
     // Center the coordinate system
-    const offset = dimension === 'x' 
-      ? (canvas.offsetWidth - size) / 2 
+    const offset = dimension === 'x'
+      ? (canvas.offsetWidth - size) / 2
       : (canvas.offsetHeight - bottomPaddingRef.current - size) / 2; // Account for bottom margin
     return ((px - offset) / size) - 0.5;
   };
@@ -209,8 +209,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const availableHeight = canvas.offsetHeight - bottomPaddingRef.current; // Subtract bottom margin
     const size = Math.min(canvas.offsetWidth, availableHeight);
     // Center the coordinate system
-    const offset = dimension === 'x' 
-      ? (canvas.offsetWidth - size) / 2 
+    const offset = dimension === 'x'
+      ? (canvas.offsetWidth - size) / 2
       : (canvas.offsetHeight - bottomPaddingRef.current - size) / 2; // Account for bottom margin
     return ((relative + 0.5) * size) + offset;
   };
@@ -269,24 +269,24 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     if (!SAVE_CAMERA_FRAMES) {
       return null;
     }
-    
+
     try {
       // ALWAYS use raw video element (no overlays, no MediaPipe drawings)
       const detectorVideo = window.braceletDetectorVideo;
-      
+
       if (!detectorVideo || !detectorVideo.videoWidth || detectorVideo.videoWidth === 0) {
         console.warn('[GameCanvas] No raw video source available for frame capture');
         return null;
       }
-      
+
       // Create a temporary canvas for resizing and quality reduction
       const tempCanvas = document.createElement('canvas');
       const maxWidth = 640; // Reduce resolution to save space
       const maxHeight = 480;
-      
+
       let width = detectorVideo.videoWidth;
       let height = detectorVideo.videoHeight;
-      
+
       // Calculate scaled dimensions maintaining aspect ratio
       const aspectRatio = width / height;
       if (width > maxWidth) {
@@ -297,14 +297,14 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
         height = maxHeight;
         width = height * aspectRatio;
       }
-      
+
       tempCanvas.width = Math.floor(width);
       tempCanvas.height = Math.floor(height);
       const tempCtx = tempCanvas.getContext('2d');
-      
+
       // Draw RAW video to temp canvas (scaled down, NO overlays)
       tempCtx.drawImage(detectorVideo, 0, 0, tempCanvas.width, tempCanvas.height);
-      
+
       // Convert to JPEG with reduced quality (0.6 = 60% quality)
       return tempCanvas.toDataURL('image/jpeg', 0.6);
     } catch (error) {
@@ -321,8 +321,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const snappedPos = snapToAllowed(allowedPos, block.position);
 
     // Calculate hold time
-    const holdTime = blockPickupTimeRef.current 
-      ? (Date.now() - blockPickupTimeRef.current) / 1000 
+    const holdTime = blockPickupTimeRef.current
+      ? (Date.now() - blockPickupTimeRef.current) / 1000
       : 0;
 
     // Create updated blocks array with the snapped position
@@ -337,10 +337,10 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     const currentPlayer = window.currentBraceletStatus || 'Unknown';
 
     // Log the move to CSV with the final snapped position and updated all_positions
-      const logEntry = {
+    const logEntry = {
       date: config.date,
       id: config.id,
-        sessionGameId: config.sessionGameId,
+      sessionGameId: config.sessionGameId,
       condition: config.condition,
       phase: isPractice ? 'practice' : 'experiment',
       type: 'moveblock',
@@ -415,7 +415,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     canvas.width = 400;
     canvas.height = 400;
     const ctx = canvas.getContext('2d');
-    
+
     // Black background
     ctx.fillStyle = '#000';
     ctx.fillRect(0, 0, 400, 400);
@@ -423,7 +423,7 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
     // Draw blocks centered
     const positions = blocks.map(b => b.position);
     const normalizedPos = resetPositions(positions);
-    
+
     if (normalizedPos) {
       normalizedPos.forEach(pos => {
         const x = (pos[0] + 0.5) * 400;
@@ -442,15 +442,15 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
       setShowMessage(true);
       setMessageText(practiceDoneMessage);
       startTimeRef.current = Date.now();
-      
+
       // Reset blocks
       setBlocks(createInitialBlocks());
       setGalleryImage(null);
       setGalleryNumber(0);
-      
+
       // Clear all collected data from practice and start fresh
       loggerRef.current = new CSVLogger(config);
-      
+
       // Restart game tracker for real game
       gameTrackerRef.current.stop();
       gameTrackerRef.current = getGameTracker();
@@ -498,26 +498,26 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
         const oscillator = audioContext.createOscillator();
         const gainNode = audioContext.createGain();
-        
+
         oscillator.connect(gainNode);
         gainNode.connect(audioContext.destination);
-        
+
         // Create a pleasant "start" sound: two tones
         oscillator.frequency.setValueAtTime(800, audioContext.currentTime); // First tone (high)
         oscillator.frequency.setValueAtTime(600, audioContext.currentTime + 0.15); // Second tone (lower)
-        
+
         gainNode.gain.setValueAtTime(0.3, audioContext.currentTime);
         gainNode.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.3);
-        
+
         oscillator.start(audioContext.currentTime);
         oscillator.stop(audioContext.currentTime + 0.3);
-        
+
         console.log('[GameCanvas] Playing start sound - Real experiment begins!');
       } catch (e) {
         console.error('[GameCanvas] Error playing sound:', e);
       }
     }
-    
+
     setShowMessage(false);
   };
 
@@ -526,8 +526,8 @@ Let the experimenter know when you are ready to begin the actual experiment.`;
   };
 
   return (
-    <div 
-      className="game-canvas" 
+    <div
+      className="game-canvas"
       ref={canvasRef}
       style={{
         '--block-size': `${canvasVars.blockSize}px`,

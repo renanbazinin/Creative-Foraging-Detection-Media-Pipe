@@ -25,6 +25,7 @@ function Summary({
   const [galleryImages, setGalleryImages] = useState([]);
   const [highlightedBlockId, setHighlightedBlockId] = useState(null);
   const [editMode, setEditMode] = useState(false);
+  const [showGrid, setShowGrid] = useState(false);
   const fileInputRef = useRef(null);
   const playbackIntervalRef = useRef(null);
   const canvasRef = useRef(null);
@@ -51,7 +52,7 @@ function Summary({
     // Apply all moves up to targetIndex
     for (let i = 0; i <= targetIndex && i < data.moves.length; i++) {
       const move = data.moves[i];
-      
+
       // Update phase if needed
       if (move.phase === 'experiment' && currentIsPractice) {
         currentIsPractice = false;
@@ -59,12 +60,14 @@ function Summary({
         currentBlocks = createInitialBlocks();
       }
 
-      // Apply the move - use all_positions (relative coordinates) for rendering
-      // Check both old format (all_positions) and new format compatibility
-      const positionsToUse = move.all_positions || (move.allPositions ? 
-        // Convert grid positions back to relative if needed (shouldn't happen, but safety)
-        move.allPositions.map(gridPos => [gridPos[0] * 0.07, gridPos[1] * 0.07]) : null);
-      
+      // Apply the move - prefer grid positions (properly snapped) over all_positions
+      // GRID_UNIT = 0.035 (grid integer coordinates * 0.035 = relative coordinates)
+      // Priority: allPositions > grid_all_positions > all_positions
+      const gridPositions = move.allPositions || move.grid_all_positions;
+      const positionsToUse = gridPositions
+        ? gridPositions.map(gridPos => [gridPos[0] * 0.035, gridPos[1] * 0.035])
+        : move.all_positions;
+
       if (move.type === 'moveblock' && positionsToUse) {
         // Ensure we have exactly 10 blocks and positions match
         if (positionsToUse.length === 10 && currentBlocks.length === 10) {
@@ -92,10 +95,10 @@ function Summary({
         canvas.width = 400;
         canvas.height = 400;
         const ctx = canvas.getContext('2d');
-        
+
         ctx.fillStyle = '#000';
         ctx.fillRect(0, 0, 400, 400);
-        
+
         move.gallery_normalized.forEach(pos => {
           const x = (pos[0] + 0.5) * 400;
           const y = (pos[1] + 0.5) * 400;
@@ -104,7 +107,7 @@ function Summary({
           const blockSize = 28;
           ctx.fillRect(x - blockSize / 2, y - blockSize / 2, blockSize, blockSize);
         });
-        
+
         currentGalleryImages.push({
           number: move.gallery_shape_number,
           image: canvas.toDataURL()
@@ -186,25 +189,25 @@ function Summary({
   const goToMove = (index) => {
     if (!gameData) return;
     if (index < 0 || index >= gameData.moves.length) return;
-    
+
     applyMovesUpTo(index);
     setCurrentMoveIndex(index);
   };
 
   const startPlayback = () => {
     if (!gameData || isPlaying) return;
-    
+
     setIsPlaying(true);
     setCurrentMoveIndex(0);
     applyMovesUpTo(0);
-    
+
     let moveIndex = 0;
     playbackIntervalRef.current = setInterval(() => {
       if (moveIndex >= gameData.moves.length) {
         stopPlayback();
         return;
       }
-      
+
       moveIndex++;
       applyMovesUpTo(moveIndex);
       setCurrentMoveIndex(moveIndex);
@@ -356,17 +359,83 @@ function Summary({
       <div className="summary-main">
         <div className="summary-left">
           <div className="summary-game-area">
-            <div 
-              className="game-canvas" 
+            <div className="summary-grid-toggle">
+              <label>
+                <input
+                  type="checkbox"
+                  checked={showGrid}
+                  onChange={(e) => setShowGrid(e.target.checked)}
+                />
+                Show Grid
+              </label>
+            </div>
+            <div
+              className="game-canvas"
               ref={canvasRef}
             >
+              {/* Grid Overlay */}
+              {showGrid && (() => {
+                // GRID_UNIT = 0.035 (half of GRID_STEP 0.07)
+                // Grid coordinates in JSON are integers: relative = gridCoord * 0.035
+                // Grid range is approximately -14 to +14
+                const GRID_UNIT = 0.035;
+                const gridRange = [];
+                for (let i = -14; i <= 14; i += 2) {
+                  gridRange.push(i);
+                }
+
+                return (
+                  <div className="grid-overlay">
+                    {/* Horizontal lines and Y-axis labels */}
+                    {gridRange.map(gridY => {
+                      const relY = gridY * GRID_UNIT;
+                      const topPercent = (relY + 0.5) * 100;
+                      return (
+                        <React.Fragment key={`h-${gridY}`}>
+                          <div
+                            className="grid-line grid-line-h"
+                            style={{ top: `${topPercent}%` }}
+                          />
+                          <div
+                            className="grid-label grid-label-left"
+                            style={{ top: `${topPercent}%` }}
+                          >
+                            {gridY}
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
+                    {/* Vertical lines and X-axis labels */}
+                    {gridRange.map(gridX => {
+                      const relX = gridX * GRID_UNIT;
+                      const leftPercent = (relX + 0.5) * 100;
+                      return (
+                        <React.Fragment key={`v-${gridX}`}>
+                          <div
+                            className="grid-line grid-line-v"
+                            style={{ left: `${leftPercent}%` }}
+                          />
+                          <div
+                            className="grid-label grid-label-top"
+                            style={{ left: `${leftPercent}%` }}
+                          >
+                            {gridX}
+                          </div>
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                );
+              })()}
+
+
               {/* Gallery */}
               <div className="gallery">
                 <div className="gallery-frame">
                   {galleryImages.length > 0 ? (
-                    <img 
-                      src={galleryImages[galleryImages.length - 1].image} 
-                      alt="Gallery" 
+                    <img
+                      src={galleryImages[galleryImages.length - 1].image}
+                      alt="Gallery"
                       className="gallery-image"
                     />
                   ) : (
@@ -383,7 +452,7 @@ function Summary({
                   console.warn(`Invalid position for block ${block.id}:`, pos);
                   return null;
                 }
-                
+
                 return (
                   <div
                     key={block.id}
@@ -395,13 +464,17 @@ function Summary({
                       cursor: block.canMove ? 'grab' : 'default',
                       zIndex: block.id === highlightedBlockId ? 20 : idx + 1
                     }}
-                  />
+                  >
+                    {showGrid && (
+                      <span className="block-id-label">{block.id}</span>
+                    )}
+                  </div>
                 );
               })}
             </div>
           </div>
 
-            <div className="summary-progress">
+          <div className="summary-progress">
             <input
               type="range"
               min="0"
@@ -498,7 +571,7 @@ function Summary({
             <div className="move-list-header">
               <h2>Move History</h2>
               {onPlayerUpdate && (
-                <button 
+                <button
                   className={`edit-mode-toggle ${editMode ? 'active' : ''}`}
                   onClick={() => setEditMode(!editMode)}
                 >
@@ -516,8 +589,8 @@ function Summary({
                   <div className="move-number">{index + 1}</div>
                   {move.camera_frame && (
                     <div className="move-camera-frame">
-                      <img 
-                        src={move.camera_frame} 
+                      <img
+                        src={move.camera_frame}
                         alt={`Camera frame for move ${index + 1}`}
                         className="camera-frame-thumbnail"
                       />
@@ -528,7 +601,7 @@ function Summary({
                     {editMode && onPlayerUpdate ? (
                       <div className="move-player-edit">
                         <label>Player:</label>
-                        <select 
+                        <select
                           value={move.player || 'Unknown'}
                           onChange={(e) => {
                             const newPlayer = e.target.value;
@@ -548,13 +621,13 @@ function Summary({
                     {(move.blockId !== null && move.blockId !== undefined) || (move.unit !== null && move.unit !== undefined) ? (
                       <div className="move-unit">Block: {move.blockId !== undefined ? move.blockId : move.unit}</div>
                     ) : null}
-                  {Array.isArray(move.position) && move.position.length === 2 && (
-                    <div className="move-position">Position: ({move.position[0]}, {move.position[1]})</div>
-                  )}
-                  {Number.isFinite(move.holdTime) && move.holdTime > 0 && (
-                    <div className="move-hold-time">Hold Time: {formatNumber(move.holdTime, 2)}s</div>
-                  )}
-                  <div className="move-time">Time: {formatNumber(move.elapsed, 1)}s</div>
+                    {Array.isArray(move.position) && move.position.length === 2 && (
+                      <div className="move-position">Position: ({move.position[0]}, {move.position[1]})</div>
+                    )}
+                    {Number.isFinite(move.holdTime) && move.holdTime > 0 && (
+                      <div className="move-hold-time">Hold Time: {formatNumber(move.holdTime, 2)}s</div>
+                    )}
+                    <div className="move-time">Time: {formatNumber(move.elapsed, 1)}s</div>
                   </div>
                 </div>
               ))}
