@@ -3,9 +3,11 @@ import { getApiBaseUrl } from '../config/api.config';
 import './MoveHistoryEditor.css';
 import { identifyPlayerByColor, identifyPlayerBySegmentation, identifyPlayersByCloth } from '../utils/colorDetector';
 import { identifyPlayersByAllAll } from '../utils/colorDetectorGeneral';
+import { swapPlayersAB } from '../utils/swapPlayers';
 import ColorPreviewModal from './ColorPreviewModal';
 import ManualScanSelector from './ManualScanSelector';
 import SwipeView from './SwipeView';
+import ConfirmSwapModal from './ConfirmSwapModal';
 
 const API_BASE_URL = getApiBaseUrl();
 const ADMIN_PASSWORD_KEY = 'adminPassword';
@@ -74,6 +76,11 @@ function MoveHistoryEditor({ sessionGameId }) {
   const [swipeViewFrames, setSwipeViewFrames] = useState([]);
   const [swipeViewClusterColors, setSwipeViewClusterColors] = useState({});
   const [backgroundSensitivity, setBackgroundSensitivity] = useState(0.85); // Background detection threshold
+  const [swappingPlayers, setSwappingPlayers] = useState(false);
+  const [swapProgress, setSwapProgress] = useState({ current: 0, total: 0 });
+  const [showSwapModal, setShowSwapModal] = useState(false);
+  const [pendingSwapOperation, setPendingSwapOperation] = useState(null);
+
 
 
   const detectPlayerByColor = useCallback(
@@ -896,6 +903,74 @@ function MoveHistoryEditor({ sessionGameId }) {
     });
   }, [allAllAnalytics]);
 
+  // Swap Player A and Player B in the DATABASE (persisted change)
+  const handleSwapPlayersABDatabase = useCallback(async () => {
+    if (!sessionGameId || !password || !session?.moves) return;
+
+    try {
+      // Prepare the swap operation
+      const swapOperation = await swapPlayersAB({
+        sessionGameId,
+        password,
+        apiBaseUrl: API_BASE_URL,
+        moves: session.moves,
+        onProgress: (current, total) => {
+          setSwapProgress({ current, total });
+        }
+      });
+
+      // Store pending operation and show modal
+      setPendingSwapOperation(swapOperation);
+      setShowSwapModal(true);
+
+    } catch (err) {
+      console.error('[MoveHistoryEditor] Swap preparation failed:', err);
+      alert('Failed to prepare swap: ' + err.message);
+    }
+  }, [sessionGameId, password, session?.moves]);
+
+  // Handle swap confirmation from modal
+  const handleConfirmSwap = useCallback(async () => {
+    if (!pendingSwapOperation) return;
+
+    setShowSwapModal(false);
+    setSwappingPlayers(true);
+    setSwapProgress({ current: 0, total: pendingSwapOperation.confirmationInfo.totalBatches });
+
+    try {
+      // Execute the swap
+      const result = await pendingSwapOperation.execute();
+
+      console.log('[MoveHistoryEditor] Swap completed:', result);
+
+      // Update local state with swapped players
+      setSession(prev => {
+        if (!prev) return prev;
+        const newMoves = prev.moves.map(move => {
+          const update = result.updates.find(u => u.moveId === move._id);
+          return update ? { ...move, player: update.player } : move;
+        });
+        return { ...prev, moves: newMoves };
+      });
+
+      alert(`Successfully swapped ${result.updatedCount} frames.`);
+
+    } catch (err) {
+      console.error('[MoveHistoryEditor] Swap failed:', err);
+      alert('Failed to swap players: ' + err.message);
+    } finally {
+      setSwappingPlayers(false);
+      setSwapProgress({ current: 0, total: 0 });
+      setPendingSwapOperation(null);
+    }
+  }, [pendingSwapOperation]);
+
+  // Handle swap cancellation from modal
+  const handleCancelSwap = useCallback(() => {
+    setShowSwapModal(false);
+    setPendingSwapOperation(null);
+  }, []);
+
   const handleAiIdentifySingle = async (moveId) => {
     if (!sessionGameId || !password) return;
 
@@ -1222,9 +1297,34 @@ function MoveHistoryEditor({ sessionGameId }) {
             <span className="session-meta">Participant: {session.subjectId}</span>
             <span className="session-meta">Condition: {session.condition}</span>
           </div>
-          <div className="player-stats" style={{ marginTop: '5px', fontSize: '0.9em' }}>
-            <span style={{ marginRight: '15px', color: colorA, fontWeight: 'bold' }}>Player A: {playerACount}</span>
+          <div className="player-stats" style={{ marginTop: '5px', fontSize: '0.9em', display: 'flex', alignItems: 'center', gap: '15px' }}>
+            <span style={{ color: colorA, fontWeight: 'bold' }}>Player A: {playerACount}</span>
             <span style={{ color: colorB, fontWeight: 'bold' }}>Player B: {playerBCount}</span>
+            <button
+              onClick={handleSwapPlayersABDatabase}
+              disabled={swappingPlayers || playerACount + playerBCount === 0}
+              style={{
+                background: 'linear-gradient(135deg, #FF6B6B, #4ECDC4)',
+                color: 'white',
+                border: 'none',
+                borderRadius: '6px',
+                padding: '6px 12px',
+                cursor: swappingPlayers || playerACount + playerBCount === 0 ? 'not-allowed' : 'pointer',
+                fontSize: '12px',
+                fontWeight: 'bold',
+                opacity: swappingPlayers || playerACount + playerBCount === 0 ? 0.6 : 1,
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px'
+              }}
+              title="Swap all Player A and Player B assignments in the database"
+            >
+              {swappingPlayers ? (
+                <>{`Swapping... (${swapProgress.current}/${swapProgress.total})`}</>
+              ) : (
+                <>⇄ Swap A and B</>
+              )}
+            </button>
           </div>
         </div>
         <div className="header-center-group">
@@ -2007,7 +2107,18 @@ function MoveHistoryEditor({ sessionGameId }) {
           />
         )
       }
+
+      {/* Confirm Swap Modal */}
+      <ConfirmSwapModal
+        isOpen={showSwapModal}
+        onConfirm={handleConfirmSwap}
+        onCancel={handleCancelSwap}
+        totalFrames={pendingSwapOperation?.confirmationInfo?.totalFrames || 0}
+        totalBatches={pendingSwapOperation?.confirmationInfo?.totalBatches || 1}
+        batchSize={pendingSwapOperation?.confirmationInfo?.batchSize || 600}
+      />
     </div >
+
   );
 }
 
